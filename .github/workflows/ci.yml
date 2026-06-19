@@ -14,6 +14,25 @@ jobs:
     name: Go checks
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        env:
+          POSTGRES_DB: vaultforge_test
+          POSTGRES_USER: vaultforge
+          POSTGRES_PASSWORD: vaultforge_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vaultforge -d vaultforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 5s
+
+    env:
+      TEST_DATABASE_URL: postgres://vaultforge:vaultforge_ci_test@127.0.0.1:5432/vaultforge_test?sslmode=disable
+
     defaults:
       run:
         working-directory: apps/api
@@ -31,6 +50,9 @@ jobs:
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
 
+      - name: Verify modules
+        run: go mod verify
+
       - name: Vet
         run: go vet ./...
 
@@ -41,7 +63,7 @@ jobs:
         run: staticcheck ./...
 
       - name: Test with race detector
-        run: go test -race ./...
+        run: go test -race -count=1 ./...
 
   secrets:
     name: Secret scan
