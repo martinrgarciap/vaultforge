@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 )
 
 func main() {
@@ -21,7 +24,34 @@ func main() {
 		_ = logger.Sync()
 	}()
 
-	app := api.NewApplication(cfg, logger)
+	databaseContext, cancelDatabase := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
+
+	databasePool, err := db.New(
+		databaseContext,
+		cfg.DatabaseURL,
+	)
+
+	cancelDatabase()
+
+	if err != nil {
+		logger.Errorw(
+			"database initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	defer databasePool.Close()
+
+	logger.Infow(
+		"database connection established",
+	)
+
+	app := api.NewApplication(cfg, logger, databasePool)
 
 	if err := app.Run(); err != nil {
 		logger.Errorw(

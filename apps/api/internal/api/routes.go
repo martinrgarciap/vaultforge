@@ -22,7 +22,11 @@ func (app *Application) Routes() http.Handler {
 	router.NotFound(app.notFoundResponse)
 	router.MethodNotAllowed(app.methodNotAllowedResponse)
 
-	router.Get("/health", app.healthHandler.HealthCheck)
+	router.Route("/health", func(router chi.Router) {
+		router.Get("/", app.healthHandler.Live)
+		router.Get("/live", app.healthHandler.Live)
+		router.Get("/ready", app.healthHandler.Ready)
+	})
 
 	return router
 }

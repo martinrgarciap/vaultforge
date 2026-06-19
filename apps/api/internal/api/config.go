@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	Env  string
-	Addr string
+	Env         string
+	Addr        string
+	DatabaseURL string
 }
 
 func LoadConfig() (Config, error) {
@@ -16,7 +17,8 @@ func LoadConfig() (Config, error) {
 		Env: strings.ToLower(
 			getEnv("APP_ENV", "development"),
 		),
-		Addr: getEnv("HTTP_ADDR", ":8080"),
+		Addr:        getEnv("HTTP_ADDR", ":8080"),
+		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
 	}
 
 	switch cfg.Env {
@@ -25,6 +27,10 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf(
 			"APP_ENV must be development, test, or production",
 		)
+	}
+
+	if cfg.DatabaseURL == "" {
+		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 
 	return cfg, nil

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -17,15 +20,41 @@ type errorResponseBody struct {
 	} `json:"error"`
 }
 
+type testDatabasePinger struct {
+	err   error
+	calls int
+}
+
+func (pinger *testDatabasePinger) Ping(
+	_ context.Context,
+) error {
+	pinger.calls++
+
+	return pinger.err
+}
+
 func newTestApplication() *Application {
+	return newTestApplicationWithDatabaseError(nil)
+}
+
+func newTestApplicationWithDatabaseError(
+	databaseError error,
+) *Application {
 	cfg := Config{
-		Env:  "test",
-		Addr: ":8080",
+		Env:         "test",
+		Addr:        ":8080",
+		DatabaseURL: "postgres://test",
 	}
 
 	logger := zap.NewNop().Sugar()
 
-	return NewApplication(cfg, logger)
+	return NewApplication(
+		cfg,
+		logger,
+		&testDatabasePinger{
+			err: databaseError,
+		},
+	)
 }
 
 func TestRoutesHealthCheck(t *testing.T) {
@@ -199,5 +228,182 @@ func TestRoutesMethodNotAllowed(t *testing.T) {
 
 	if body.Error.RequestID == "" {
 		t.Error("expected response to include a request ID")
+	}
+}
+
+func TestRoutesLivenessReturnsOKWhenDatabaseFails(
+	t *testing.T,
+) {
+	app := newTestApplicationWithDatabaseError(
+		errors.New("database unavailable"),
+	)
+
+	router := app.Routes()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/health/live",
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"expected status %d, got %d",
+			http.StatusOK,
+			recorder.Code,
+		)
+	}
+
+	var body struct {
+		Status      string `json:"status"`
+		Environment string `json:"environment"`
+	}
+
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode response body: %v",
+			err,
+		)
+	}
+
+	if body.Status != "ok" {
+		t.Errorf(
+			"expected health status ok, got %q",
+			body.Status,
+		)
+	}
+
+	if body.Environment != "test" {
+		t.Errorf(
+			"expected environment test, got %q",
+			body.Environment,
+		)
+	}
+}
+
+func TestRoutesReadinessReturnsOKWhenDatabaseIsAvailable(
+	t *testing.T,
+) {
+	app := newTestApplication()
+	router := app.Routes()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/health/ready",
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"expected status %d, got %d",
+			http.StatusOK,
+			recorder.Code,
+		)
+	}
+
+	var body struct {
+		Status      string `json:"status"`
+		Environment string `json:"environment"`
+	}
+
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode response body: %v",
+			err,
+		)
+	}
+
+	if body.Status != "ok" {
+		t.Errorf(
+			"expected health status ok, got %q",
+			body.Status,
+		)
+	}
+
+	if body.Environment != "test" {
+		t.Errorf(
+			"expected environment test, got %q",
+			body.Environment,
+		)
+	}
+}
+
+func TestRoutesReadinessReturnsServiceUnavailableWhenDatabaseFails(
+	t *testing.T,
+) {
+	const sensitiveErrorDetails = "database connection failed with sensitive details"
+
+	app := newTestApplicationWithDatabaseError(
+		errors.New(sensitiveErrorDetails),
+	)
+
+	router := app.Routes()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/health/ready",
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"expected status %d, got %d",
+			http.StatusServiceUnavailable,
+			recorder.Code,
+		)
+	}
+
+	responseBody := recorder.Body.String()
+
+	if responseBody == "" {
+		t.Fatal("expected a response body")
+	}
+
+	if strings.Contains(
+		responseBody,
+		sensitiveErrorDetails,
+	) {
+		t.Fatal("readiness response exposed database details")
+	}
+
+	var body struct {
+		Status      string `json:"status"`
+		Environment string `json:"environment"`
+	}
+
+	if err := json.Unmarshal(
+		[]byte(responseBody),
+		&body,
+	); err != nil {
+		t.Fatalf(
+			"failed to decode response body: %v",
+			err,
+		)
+	}
+
+	if body.Status != "unavailable" {
+		t.Errorf(
+			"expected status unavailable, got %q",
+			body.Status,
+		)
+	}
+
+	if body.Environment != "test" {
+		t.Errorf(
+			"expected environment test, got %q",
+			body.Environment,
+		)
 	}
 }
