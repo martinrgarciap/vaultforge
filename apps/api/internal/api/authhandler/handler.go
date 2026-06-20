@@ -4,31 +4,36 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/request"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/response"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 )
 
 const maxAuthRequestBodyBytes int64 = 64 * 1024
 
-type Service interface {
+type RegistrationService interface {
 	Register(
 		ctx context.Context,
 		input auth.RegisterInput,
 	) (auth.Account, error)
+}
 
+type LoginService interface {
 	Login(
 		ctx context.Context,
-		input auth.LoginInput,
-	) (auth.Account, error)
+		input session.LoginInput,
+	) (session.LoginResult, error)
 }
 
 type Handler struct {
-	service Service
-	logger  *zap.SugaredLogger
+	registrationService RegistrationService
+	loginService        LoginService
+	logger              *zap.SugaredLogger
 }
 
 type credentialsRequest struct {
@@ -40,13 +45,24 @@ type accountResponse struct {
 	User auth.Account `json:"user"`
 }
 
+type loginResponse struct {
+	User                  auth.Account `json:"user"`
+	TokenType             string       `json:"tokenType"`
+	AccessToken           string       `json:"accessToken"`
+	AccessTokenExpiresAt  time.Time    `json:"accessTokenExpiresAt"`
+	RefreshToken          string       `json:"refreshToken"`
+	RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
+}
+
 func New(
-	service Service,
+	registrationService RegistrationService,
+	loginService LoginService,
 	logger *zap.SugaredLogger,
 ) *Handler {
 	return &Handler{
-		service: service,
-		logger:  logger,
+		registrationService: registrationService,
+		loginService:        loginService,
+		logger:              logger,
 	}
 }
 
@@ -54,7 +70,8 @@ func (handler *Handler) Register(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if handler == nil || handler.service == nil {
+	if handler == nil ||
+		handler.registrationService == nil {
 		handler.writeError(
 			w,
 			r,
@@ -80,13 +97,14 @@ func (handler *Handler) Register(
 		return
 	}
 
-	account, err := handler.service.Register(
-		r.Context(),
-		auth.RegisterInput{
-			Email:    requestBody.Email,
-			Password: requestBody.Password,
-		},
-	)
+	account, err :=
+		handler.registrationService.Register(
+			r.Context(),
+			auth.RegisterInput{
+				Email:    requestBody.Email,
+				Password: requestBody.Password,
+			},
+		)
 	if err != nil {
 		handler.writeRegisterError(w, r, err)
 
@@ -108,7 +126,8 @@ func (handler *Handler) Login(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if handler == nil || handler.service == nil {
+	if handler == nil ||
+		handler.loginService == nil {
 		handler.writeError(
 			w,
 			r,
@@ -134,11 +153,12 @@ func (handler *Handler) Login(
 		return
 	}
 
-	account, err := handler.service.Login(
+	result, err := handler.loginService.Login(
 		r.Context(),
-		auth.LoginInput{
-			Email:    requestBody.Email,
-			Password: requestBody.Password,
+		session.LoginInput{
+			Email:     requestBody.Email,
+			Password:  requestBody.Password,
+			UserAgent: r.UserAgent(),
 		},
 	)
 	if err != nil {
@@ -150,8 +170,13 @@ func (handler *Handler) Login(
 	if err := response.WriteJSON(
 		w,
 		http.StatusOK,
-		accountResponse{
-			User: account,
+		loginResponse{
+			User:                  result.Account,
+			TokenType:             "Bearer",
+			AccessToken:           result.AccessToken.Value(),
+			AccessTokenExpiresAt:  result.AccessToken.ExpiresAt(),
+			RefreshToken:          result.RefreshToken.Value(),
+			RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
 		},
 	); err != nil {
 		handler.logResponseFailure(r)
@@ -276,10 +301,8 @@ func (handler *Handler) writeLoginError(
 
 	case errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded),
-		errors.Is(
-			err,
-			auth.ErrAuthenticationUnavailable,
-		):
+		errors.Is(err, session.ErrSessionUnavailable),
+		errors.Is(err, auth.ErrAuthenticationUnavailable):
 		handler.writeError(
 			w,
 			r,

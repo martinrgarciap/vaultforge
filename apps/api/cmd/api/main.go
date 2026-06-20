@@ -8,6 +8,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 )
 
@@ -25,6 +26,17 @@ func main() {
 	defer func() {
 		_ = logger.Sync()
 	}()
+
+	accessTokenManager, err :=
+		cfg.Tokens.NewAccessTokenManager()
+	if err != nil {
+		logger.Errorw(
+			"access token manager initialization failed",
+			"error", err,
+		)
+
+		return
+	}
 
 	databaseContext, cancelDatabase := context.WithTimeout(
 		context.Background(),
@@ -62,11 +74,27 @@ func main() {
 		passwordHasher,
 	)
 
+	sessionStore := store.NewSessionStore(
+		databasePool,
+	)
+
+	refreshTokenGenerator :=
+		session.NewRefreshTokenGenerator()
+
+	sessionService := session.NewService(
+		authService,
+		sessionStore,
+		refreshTokenGenerator,
+		accessTokenManager,
+		cfg.Tokens.Lifetimes(),
+	)
+
 	app := api.NewApplication(
 		cfg,
 		logger,
 		databasePool,
 		authService,
+		sessionService,
 	)
 
 	if err := app.Run(); err != nil {

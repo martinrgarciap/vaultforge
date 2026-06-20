@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"go.uber.org/zap"
@@ -145,6 +146,65 @@ func TestRoutesLoginAccount(t *testing.T) {
 			authService.lastLoginInput,
 		)
 	}
+
+	var body struct {
+		User                  auth.Account `json:"user"`
+		TokenType             string       `json:"tokenType"`
+		AccessToken           string       `json:"accessToken"`
+		AccessTokenExpiresAt  time.Time    `json:"accessTokenExpiresAt"`
+		RefreshToken          string       `json:"refreshToken"`
+		RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
+	}
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode login response: %v",
+			err,
+		)
+	}
+
+	if body.User.ID != "user-123" {
+		t.Fatalf(
+			"response user ID = %q, want %q",
+			body.User.ID,
+			"user-123",
+		)
+	}
+
+	if body.TokenType != "Bearer" {
+		t.Fatalf(
+			"token type = %q, want %q",
+			body.TokenType,
+			"Bearer",
+		)
+	}
+
+	if body.AccessToken == "" {
+		t.Fatal(
+			"expected a non-empty access token",
+		)
+	}
+
+	if body.AccessTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"expected an access-token expiration",
+		)
+	}
+
+	if body.RefreshToken == "" {
+		t.Fatal(
+			"expected a non-empty refresh token",
+		)
+	}
+
+	if body.RefreshTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"expected a refresh-token expiration",
+		)
+	}
+
 }
 
 func TestRoutesAuthRejectsUnsupportedMethod(
@@ -242,11 +302,31 @@ func TestRoutesAuthDoesNotLogSensitiveValues(
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code !=
-		http.StatusInternalServerError {
+		http.StatusServiceUnavailable {
 		t.Fatalf(
 			"status = %d, want %d",
 			recorder.Code,
-			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
+		)
+	}
+
+	var responseBody errorResponseBody
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&responseBody); err != nil {
+		t.Fatalf(
+			"failed to decode response: %v",
+			err,
+		)
+	}
+
+	if responseBody.Error.Code !=
+		"authentication_unavailable" {
+		t.Fatalf(
+			"error code = %q, want %q",
+			responseBody.Error.Code,
+			"authentication_unavailable",
 		)
 	}
 
@@ -306,6 +386,9 @@ func newApplicationWithAuthService(
 		logger,
 		&testDatabasePinger{},
 		authService,
+		newTestLoginSessionService(
+			authService,
+		),
 	)
 }
 

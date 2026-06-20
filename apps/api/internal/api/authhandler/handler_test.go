@@ -1,7 +1,9 @@
 package authhandler
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 )
 
@@ -139,12 +142,11 @@ func TestHandlerRegister(t *testing.T) {
 func TestHandlerLogin(t *testing.T) {
 	t.Parallel()
 
+	loginResult :=
+		newHandlerTestLoginResult(t)
+
 	service := &fakeAuthService{
-		loginAccount: auth.Account{
-			ID:     "user-123",
-			Email:  "martin@example.com",
-			Status: "active",
-		},
+		loginResult: loginResult,
 	}
 
 	router := newTestRouter(service)
@@ -156,6 +158,11 @@ func TestHandlerLogin(t *testing.T) {
 			"email": "martin@example.com",
 			"password": "correct horse battery staple"
 		}`,
+	)
+
+	request.Header.Set(
+		"User-Agent",
+		"Thunder Client",
 	)
 
 	recorder := httptest.NewRecorder()
@@ -177,14 +184,57 @@ func TestHandlerLogin(t *testing.T) {
 		)
 	}
 
-	if service.lastLoginInput !=
-		(auth.LoginInput{
-			Email:    "martin@example.com",
-			Password: handlerTestPassword,
-		}) {
+	expectedInput := session.LoginInput{
+		Email:     "martin@example.com",
+		Password:  handlerTestPassword,
+		UserAgent: "Thunder Client",
+	}
+
+	if service.lastLoginInput != expectedInput {
 		t.Fatalf(
-			"Login() input = %+v",
+			"Login() input = %+v, want %+v",
 			service.lastLoginInput,
+			expectedInput,
+		)
+	}
+
+	var body loginResponse
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode response: %v",
+			err,
+		)
+	}
+
+	if body.User.ID !=
+		loginResult.Account.ID {
+		t.Fatalf(
+			"response user ID = %q",
+			body.User.ID,
+		)
+	}
+
+	if body.TokenType != "Bearer" {
+		t.Fatalf(
+			"token type = %q, want Bearer",
+			body.TokenType,
+		)
+	}
+
+	if body.AccessToken !=
+		loginResult.AccessToken.Value() {
+		t.Fatal(
+			"response access token did not match",
+		)
+	}
+
+	if body.RefreshToken !=
+		loginResult.RefreshToken.Value() {
+		t.Fatal(
+			"response refresh token did not match",
 		)
 	}
 
@@ -470,9 +520,10 @@ func TestHandlerMapsAuthenticationFailureSafely(
 }
 
 func newTestRouter(
-	service Service,
+	service *fakeAuthService,
 ) http.Handler {
 	handler := New(
+		service,
 		service,
 		zap.NewNop().Sugar(),
 	)
@@ -559,17 +610,88 @@ func assertErrorResponse(
 	}
 }
 
+func newHandlerTestLoginResult(
+	t *testing.T,
+) session.LoginResult {
+	t.Helper()
+
+	seed := bytes.Repeat(
+		[]byte{0x62},
+		ed25519.SeedSize,
+	)
+
+	tokenConfig, err := session.NewTokenConfig(
+		"vaultforge-handler-test",
+		"vaultforge-handler-test",
+		"handler-test-ed25519-v1",
+		seed,
+		session.DefaultTokenLifetimes(),
+	)
+	if err != nil {
+		t.Fatalf(
+			"create handler token configuration: %v",
+			err,
+		)
+	}
+
+	manager, err :=
+		tokenConfig.NewAccessTokenManager()
+	if err != nil {
+		t.Fatalf(
+			"create handler token manager: %v",
+			err,
+		)
+	}
+
+	accessToken, err := manager.Issue(
+		context.Background(),
+		session.Principal{
+			UserID:    "user-123",
+			SessionID: "session-456",
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"issue handler access token: %v",
+			err,
+		)
+	}
+
+	refreshToken, err :=
+		session.NewRefreshTokenGenerator().
+			Generate(context.Background())
+	if err != nil {
+		t.Fatalf(
+			"generate handler refresh token: %v",
+			err,
+		)
+	}
+
+	return session.LoginResult{
+		Account: auth.Account{
+			ID:     "user-123",
+			Email:  "martin@example.com",
+			Status: "active",
+		},
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		RefreshTokenExpiresAt: time.Now().
+			UTC().
+			Add(24 * time.Hour),
+	}
+}
+
 type fakeAuthService struct {
 	registerAccount auth.Account
 	registerErr     error
-	loginAccount    auth.Account
+	loginResult     session.LoginResult
 	loginErr        error
 
 	registerCalls int
 	loginCalls    int
 
 	lastRegisterInput auth.RegisterInput
-	lastLoginInput    auth.LoginInput
+	lastLoginInput    session.LoginInput
 }
 
 func (service *fakeAuthService) Register(
@@ -588,14 +710,15 @@ func (service *fakeAuthService) Register(
 
 func (service *fakeAuthService) Login(
 	_ context.Context,
-	input auth.LoginInput,
-) (auth.Account, error) {
+	input session.LoginInput,
+) (session.LoginResult, error) {
 	service.loginCalls++
 	service.lastLoginInput = input
 
 	if service.loginErr != nil {
-		return auth.Account{}, service.loginErr
+		return session.LoginResult{},
+			service.loginErr
 	}
 
-	return service.loginAccount, nil
+	return service.loginResult, nil
 }

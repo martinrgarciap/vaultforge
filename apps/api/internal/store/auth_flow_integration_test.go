@@ -1,8 +1,11 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,14 +20,20 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
 
 const (
-	authIntegrationPassword = "correct horse battery staple"
-	authIntegrationTimeout  = 5 * time.Second
+	authIntegrationPassword  = "correct horse battery staple"
+	authIntegrationUserAgent = "VaultForge Authentication Integration Test"
+	authIntegrationTimeout   = 5 * time.Second
+)
+
+var errAuthenticationIntegrationAccessTokenIssue = errors.New(
+	"synthetic access-token issuance failure",
 )
 
 type authenticationErrorResponse struct {
@@ -37,6 +46,15 @@ type authenticationErrorResponse struct {
 
 type authenticationAccountResponse struct {
 	User auth.Account `json:"user"`
+}
+
+type authenticationLoginResponse struct {
+	User                  auth.Account `json:"user"`
+	TokenType             string       `json:"tokenType"`
+	AccessToken           string       `json:"accessToken"`
+	AccessTokenExpiresAt  time.Time    `json:"accessTokenExpiresAt"`
+	RefreshToken          string       `json:"refreshToken"`
+	RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
 }
 
 func TestAuthenticationHTTPFlowIntegration(
@@ -195,14 +213,13 @@ func TestAuthenticationHTTPFlowIntegration(
 
 	if loginRecorder.Code != http.StatusOK {
 		t.Fatalf(
-			"login status = %d, want %d; body = %s",
+			"login status = %d, want %d",
 			loginRecorder.Code,
 			http.StatusOK,
-			loginRecorder.Body.String(),
 		)
 	}
 
-	var loginResponse authenticationAccountResponse
+	var loginResponse authenticationLoginResponse
 
 	if err := json.NewDecoder(
 		loginRecorder.Body,
@@ -227,6 +244,189 @@ func TestAuthenticationHTTPFlowIntegration(
 			"login email = %q, want %q",
 			loginResponse.User.Email,
 			normalizedEmail,
+		)
+	}
+
+	if loginResponse.TokenType != "Bearer" {
+		t.Fatalf(
+			"token type = %q, want Bearer",
+			loginResponse.TokenType,
+		)
+	}
+
+	if loginResponse.AccessToken == "" {
+		t.Fatal(
+			"login response did not include an access token",
+		)
+	}
+
+	if loginResponse.RefreshToken == "" {
+		t.Fatal(
+			"login response did not include a refresh token",
+		)
+	}
+
+	if loginResponse.AccessTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"login response did not include an access-token expiration",
+		)
+	}
+
+	if loginResponse.RefreshTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"login response did not include a refresh-token expiration",
+		)
+	}
+
+	if !loginResponse.RefreshTokenExpiresAt.After(
+		loginResponse.AccessTokenExpiresAt,
+	) {
+		t.Fatal(
+			"refresh token should expire after the access token",
+		)
+	}
+
+	parsedRefreshToken, err :=
+		session.ParseRefreshToken(
+			loginResponse.RefreshToken,
+		)
+	if err != nil {
+		t.Fatalf(
+			"parse login refresh token: %v",
+			err,
+		)
+	}
+
+	refreshTokenDigest, err :=
+		parsedRefreshToken.Digest()
+	if err != nil {
+		t.Fatalf(
+			"digest login refresh token: %v",
+			err,
+		)
+	}
+
+	sessionQueryContext, cancelSessionQuery :=
+		context.WithTimeout(
+			context.Background(),
+			authIntegrationTimeout,
+		)
+	defer cancelSessionQuery()
+
+	var (
+		storedRefreshTokenHash []byte
+		storedTokenFamilyID    string
+		storedSessionExpiresAt time.Time
+		storedSessionRevoked   bool
+		storedUserAgent        string
+	)
+
+	err = databasePool.QueryRow(
+		sessionQueryContext,
+		`
+		SELECT
+			refresh_token_hash,
+			token_family_id::text,
+			expires_at,
+			revoked_at IS NOT NULL,
+			COALESCE(user_agent, '')
+		FROM sessions
+		WHERE user_id = $1::uuid
+		ORDER BY created_at DESC
+		LIMIT 1
+	`,
+		registerResponse.User.ID,
+	).Scan(
+		&storedRefreshTokenHash,
+		&storedTokenFamilyID,
+		&storedSessionExpiresAt,
+		&storedSessionRevoked,
+		&storedUserAgent,
+	)
+	if err != nil {
+		t.Fatalf(
+			"read login session: %v",
+			err,
+		)
+	}
+
+	if !bytes.Equal(
+		storedRefreshTokenHash,
+		refreshTokenDigest.Bytes(),
+	) {
+		t.Fatal(
+			"database refresh-token digest did not match the returned token",
+		)
+	}
+
+	if bytes.Equal(
+		storedRefreshTokenHash,
+		[]byte(loginResponse.RefreshToken),
+	) {
+		t.Fatal(
+			"database stored the plaintext refresh token",
+		)
+	}
+
+	if storedTokenFamilyID == "" {
+		t.Fatal(
+			"database session did not include a token-family ID",
+		)
+	}
+
+	if storedSessionRevoked {
+		t.Fatal(
+			"new login session should be active",
+		)
+	}
+
+	if storedUserAgent != authIntegrationUserAgent {
+		t.Fatalf(
+			"stored user agent = %q, want %q",
+			storedUserAgent,
+			authIntegrationUserAgent,
+		)
+	}
+
+	if !storedSessionExpiresAt.Equal(
+		loginResponse.RefreshTokenExpiresAt,
+	) {
+		t.Fatalf(
+			"stored refresh expiration = %v, response expiration = %v",
+			storedSessionExpiresAt,
+			loginResponse.RefreshTokenExpiresAt,
+		)
+	}
+
+	accessTokenVerifier :=
+		newAuthenticationIntegrationAccessTokenManager(
+			t,
+		)
+
+	principal, err := accessTokenVerifier.Verify(
+		context.Background(),
+		loginResponse.AccessToken,
+	)
+	if err != nil {
+		t.Fatalf(
+			"verify login access token: %v",
+			err,
+		)
+	}
+
+	if principal.UserID !=
+		registerResponse.User.ID {
+		t.Fatalf(
+			"access-token user ID = %q, want %q",
+			principal.UserID,
+			registerResponse.User.ID,
+		)
+	}
+
+	if principal.SessionID != storedTokenFamilyID {
+		t.Fatalf(
+			"access-token session ID = %q, want stored token-family ID",
+			principal.SessionID,
 		)
 	}
 
@@ -279,6 +479,38 @@ func TestAuthenticationHTTPFlowIntegration(
 		)
 	}
 
+	sessionCountContext, cancelSessionCount :=
+		context.WithTimeout(
+			context.Background(),
+			authIntegrationTimeout,
+		)
+	defer cancelSessionCount()
+
+	var storedSessionCount int
+
+	err = databasePool.QueryRow(
+		sessionCountContext,
+		`
+		SELECT count(*)
+		FROM sessions
+		WHERE user_id = $1::uuid
+	`,
+		registerResponse.User.ID,
+	).Scan(&storedSessionCount)
+	if err != nil {
+		t.Fatalf(
+			"count authentication sessions: %v",
+			err,
+		)
+	}
+
+	if storedSessionCount != 1 {
+		t.Fatalf(
+			"stored session count = %d, want 1",
+			storedSessionCount,
+		)
+	}
+
 	if unknownEmailError.Error.Message !=
 		incorrectPasswordError.Error.Message {
 		t.Fatalf(
@@ -292,6 +524,145 @@ func TestAuthenticationHTTPFlowIntegration(
 		authIntegrationPassword,
 		storedPasswordHash,
 	)
+}
+
+func TestAuthenticationLoginRevokesSessionWhenAccessTokenIssuanceFails(
+	t *testing.T,
+) {
+	app, databasePool, _ :=
+		newAuthenticationIntegrationApplicationWithAccessTokenProvider(
+			t,
+			&failingAuthenticationAccessTokenProvider{},
+		)
+
+	router := app.Routes()
+
+	registerRecorder := performAuthenticationRequest(
+		t,
+		router,
+		"/v1/auth/register",
+		"token-failure@example.com",
+		authIntegrationPassword,
+	)
+
+	if registerRecorder.Code !=
+		http.StatusCreated {
+		t.Fatalf(
+			"registration status = %d, want %d",
+			registerRecorder.Code,
+			http.StatusCreated,
+		)
+	}
+
+	var registerResponse authenticationAccountResponse
+
+	if err := json.NewDecoder(
+		registerRecorder.Body,
+	).Decode(&registerResponse); err != nil {
+		t.Fatalf(
+			"decode registration response: %v",
+			err,
+		)
+	}
+
+	loginRecorder := performAuthenticationRequest(
+		t,
+		router,
+		"/v1/auth/login",
+		"token-failure@example.com",
+		authIntegrationPassword,
+	)
+
+	errorResponse := decodeAuthenticationError(
+		t,
+		loginRecorder,
+		http.StatusServiceUnavailable,
+	)
+
+	if errorResponse.Error.Code !=
+		"authentication_unavailable" {
+		t.Fatalf(
+			"login error code = %q, want %q",
+			errorResponse.Error.Code,
+			"authentication_unavailable",
+		)
+	}
+
+	responseBody := loginRecorder.Body.String()
+
+	if strings.Contains(
+		responseBody,
+		errAuthenticationIntegrationAccessTokenIssue.
+			Error(),
+	) {
+		t.Fatal(
+			"login response exposed the token issuance error",
+		)
+	}
+
+	if strings.Contains(
+		responseBody,
+		"accessToken",
+	) ||
+		strings.Contains(
+			responseBody,
+			"refreshToken",
+		) {
+		t.Fatal(
+			"failed login response exposed token fields",
+		)
+	}
+
+	queryContext, cancelQuery :=
+		context.WithTimeout(
+			context.Background(),
+			authIntegrationTimeout,
+		)
+	defer cancelQuery()
+
+	var (
+		activeSessionCount  int64
+		revokedSessionCount int64
+	)
+
+	err := databasePool.QueryRow(
+		queryContext,
+		`
+			SELECT
+				count(*) FILTER (
+					WHERE revoked_at IS NULL
+				),
+				count(*) FILTER (
+					WHERE revoked_at IS NOT NULL
+				)
+			FROM sessions
+			WHERE user_id = $1::uuid
+		`,
+		registerResponse.User.ID,
+	).Scan(
+		&activeSessionCount,
+		&revokedSessionCount,
+	)
+	if err != nil {
+		t.Fatalf(
+			"count sessions after token issuance failure: %v",
+			err,
+		)
+	}
+
+	if activeSessionCount != 0 {
+		t.Fatalf(
+			"active session count = %d, want 0",
+			activeSessionCount,
+		)
+	}
+
+	if revokedSessionCount != 1 {
+		t.Fatalf(
+			"revoked session count = %d, want 1",
+			revokedSessionCount,
+		)
+	}
 }
 
 func TestAuthenticationDuplicateRegistrationIntegration(
@@ -502,6 +873,24 @@ func newAuthenticationIntegrationApplication(
 ) {
 	t.Helper()
 
+	return newAuthenticationIntegrationApplicationWithAccessTokenProvider(
+		t,
+		newAuthenticationIntegrationAccessTokenManager(
+			t,
+		),
+	)
+}
+
+func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
+	t *testing.T,
+	accessTokenProvider session.AccessTokenProvider,
+) (
+	*api.Application,
+	*pgxpool.Pool,
+	*observer.ObservedLogs,
+) {
+	t.Helper()
+
 	testDatabaseURL := strings.TrimSpace(
 		os.Getenv("TEST_DATABASE_URL"),
 	)
@@ -544,10 +933,28 @@ func newAuthenticationIntegrationApplication(
 	userStore := store.NewUserStore(
 		databasePool,
 	)
-	passwordHasher := auth.NewArgon2idHasher()
+
+	passwordHasher :=
+		auth.NewArgon2idHasher()
+
 	authService := auth.NewService(
 		userStore,
 		passwordHasher,
+	)
+
+	sessionStore := store.NewSessionStore(
+		databasePool,
+	)
+
+	refreshTokenGenerator :=
+		session.NewRefreshTokenGenerator()
+
+	sessionService := session.NewService(
+		authService,
+		sessionStore,
+		refreshTokenGenerator,
+		accessTokenProvider,
+		session.DefaultTokenLifetimes(),
 	)
 
 	app := api.NewApplication(
@@ -559,9 +966,57 @@ func newAuthenticationIntegrationApplication(
 		logger,
 		databasePool,
 		authService,
+		sessionService,
 	)
 
 	return app, databasePool, observedLogs
+}
+
+func newAuthenticationIntegrationAccessTokenManager(
+	t *testing.T,
+) *session.AccessTokenManager {
+	t.Helper()
+
+	seed := bytes.Repeat(
+		[]byte{0x53},
+		ed25519.SeedSize,
+	)
+
+	privateKey := ed25519.NewKeyFromSeed(seed)
+
+	manager, err := session.NewAccessTokenManager(
+		"vaultforge-auth-integration",
+		"vaultforge-auth-integration",
+		"auth-integration-ed25519-v1",
+		privateKey,
+		session.DefaultTokenLifetimes(),
+	)
+	if err != nil {
+		t.Fatalf(
+			"create authentication integration access-token manager: %v",
+			err,
+		)
+	}
+
+	return manager
+}
+
+type failingAuthenticationAccessTokenProvider struct{}
+
+func (*failingAuthenticationAccessTokenProvider) Issue(
+	_ context.Context,
+	_ session.Principal,
+) (session.AccessToken, error) {
+	return session.AccessToken{},
+		errAuthenticationIntegrationAccessTokenIssue
+}
+
+func (*failingAuthenticationAccessTokenProvider) Verify(
+	_ context.Context,
+	_ string,
+) (session.Principal, error) {
+	return session.Principal{},
+		session.ErrAccessTokenUnavailable
 }
 
 func resetAuthenticationIntegrationTables(
@@ -631,6 +1086,11 @@ func performAuthenticationRequest(
 	request.Header.Set(
 		"Content-Type",
 		"application/json",
+	)
+
+	request.Header.Set(
+		"User-Agent",
+		authIntegrationUserAgent,
 	)
 
 	recorder := httptest.NewRecorder()
