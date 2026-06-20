@@ -1,0 +1,12 @@
+cat > .githooks/pre-push <<'EOF'
+#!/bin/sh
+
+set -eu
+
+echo "Running VaultForge pre-push verification..."
+
+make verify
+git diff --check
+
+echo "VaultForge verification passed."
+EOF

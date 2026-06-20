@@ -33,14 +33,16 @@ func TestSessionStoreRotateRefreshToken(
 		[]byte{0x92},
 		sha256.Size,
 	)
+	expiresAt := time.Now().
+		UTC().
+		Add(30 * 24 * time.Hour).
+		Truncate(time.Microsecond)
 
 	session := &Session{
 		UserID:           user.ID,
 		RefreshTokenHash: currentHash,
-		ExpiresAt: time.Now().
-			UTC().
-			Add(30 * 24 * time.Hour),
-		UserAgent: &userAgent,
+		ExpiresAt:        expiresAt,
+		UserAgent:        &userAgent,
 	}
 
 	if err := sessionStore.Create(
@@ -109,7 +111,7 @@ func TestSessionStoreRotateRefreshToken(
 	}
 
 	if !rotation.ExpiresAt.Equal(
-		session.ExpiresAt,
+		expiresAt,
 	) {
 		t.Fatalf(
 			"rotation expiry = %v, want %v",
@@ -190,7 +192,7 @@ func TestSessionStoreRotateRefreshToken(
 	}
 
 	if !storedNewExpiresAt.Equal(
-		session.ExpiresAt,
+		expiresAt,
 	) {
 		t.Fatalf(
 			"stored replacement expiry = %v, want %v",
