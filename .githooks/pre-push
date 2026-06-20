@@ -1,4 +1,3 @@
-cat > .githooks/pre-push <<'EOF'
 #!/bin/sh
 
 set -eu
@@ -9,4 +8,3 @@ make verify
 git diff --check
 
 echo "VaultForge verification passed."
-EOF

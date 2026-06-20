@@ -604,9 +604,7 @@ func (
 	return provider.issuedToken, nil
 }
 
-func (
-	provider *loginTestAccessTokenProvider,
-) Verify(
+func (provider *loginTestAccessTokenProvider) Verify(
 	_ context.Context,
 	_ string,
 ) (Principal, error) {
@@ -656,6 +654,15 @@ func (sessionStore *loginTestSessionStore) Create(
 	)
 
 	return nil
+}
+
+func (sessionStore *loginTestSessionStore) RotateRefreshToken(
+	_ context.Context,
+	_ []byte,
+	_ []byte,
+	_ time.Time,
+) (store.SessionRotation, error) {
+	return store.SessionRotation{}, nil
 }
 
 func (

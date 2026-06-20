@@ -21,6 +21,13 @@ type SessionStore interface {
 		session *store.Session,
 	) error
 
+	RotateRefreshToken(
+		ctx context.Context,
+		currentRefreshTokenHash []byte,
+		replacementRefreshTokenHash []byte,
+		rotatedAt time.Time,
+	) (store.SessionRotation, error)
+
 	RevokeOwnedFamily(
 		ctx context.Context,
 		userID string,

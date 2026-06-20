@@ -30,14 +30,9 @@ func (app *Application) Routes() http.Handler {
 
 	router.Route("/v1", func(router chi.Router) {
 		router.Route("/auth", func(router chi.Router) {
-			router.Post(
-				"/register",
-				app.authHandler.Register,
-			)
-			router.Post(
-				"/login",
-				app.authHandler.Login,
-			)
+			router.Post("/register", app.authHandler.Register)
+			router.Post("/login", app.authHandler.Login)
+			router.Post("/refresh", app.authHandler.Refresh)
 		})
 	})
 

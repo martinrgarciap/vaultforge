@@ -23,16 +23,21 @@ type RegistrationService interface {
 	) (auth.Account, error)
 }
 
-type LoginService interface {
+type SessionService interface {
 	Login(
 		ctx context.Context,
 		input session.LoginInput,
 	) (session.LoginResult, error)
+
+	Refresh(
+		ctx context.Context,
+		input session.RefreshInput,
+	) (session.RefreshResult, error)
 }
 
 type Handler struct {
 	registrationService RegistrationService
-	loginService        LoginService
+	sessionService      SessionService
 	logger              *zap.SugaredLogger
 }
 
@@ -54,14 +59,26 @@ type loginResponse struct {
 	RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
 }
 
+type refreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type refreshResponse struct {
+	TokenType             string    `json:"tokenType"`
+	AccessToken           string    `json:"accessToken"`
+	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
+	RefreshToken          string    `json:"refreshToken"`
+	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
+}
+
 func New(
 	registrationService RegistrationService,
-	loginService LoginService,
+	sessionService SessionService,
 	logger *zap.SugaredLogger,
 ) *Handler {
 	return &Handler{
 		registrationService: registrationService,
-		loginService:        loginService,
+		sessionService:      sessionService,
 		logger:              logger,
 	}
 }
@@ -127,7 +144,7 @@ func (handler *Handler) Login(
 	r *http.Request,
 ) {
 	if handler == nil ||
-		handler.loginService == nil {
+		handler.sessionService == nil {
 		handler.writeError(
 			w,
 			r,
@@ -153,7 +170,7 @@ func (handler *Handler) Login(
 		return
 	}
 
-	result, err := handler.loginService.Login(
+	result, err := handler.sessionService.Login(
 		r.Context(),
 		session.LoginInput{
 			Email:     requestBody.Email,
@@ -172,6 +189,64 @@ func (handler *Handler) Login(
 		http.StatusOK,
 		loginResponse{
 			User:                  result.Account,
+			TokenType:             "Bearer",
+			AccessToken:           result.AccessToken.Value(),
+			AccessTokenExpiresAt:  result.AccessToken.ExpiresAt(),
+			RefreshToken:          result.RefreshToken.Value(),
+			RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
+		},
+	); err != nil {
+		handler.logResponseFailure(r)
+	}
+}
+
+func (handler *Handler) Refresh(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if handler == nil ||
+		handler.sessionService == nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusServiceUnavailable,
+			"authentication_unavailable",
+			"Authentication is temporarily unavailable.",
+		)
+
+		return
+	}
+
+	var requestBody refreshRequest
+
+	err := request.DecodeJSON(
+		w,
+		r,
+		&requestBody,
+		maxAuthRequestBodyBytes,
+	)
+	if err != nil {
+		handler.writeDecodeError(w, r, err)
+
+		return
+	}
+
+	result, err := handler.sessionService.Refresh(
+		r.Context(),
+		session.RefreshInput{
+			RefreshToken: requestBody.RefreshToken,
+		},
+	)
+	if err != nil {
+		handler.writeRefreshError(w, r, err)
+
+		return
+	}
+
+	if err := response.WriteJSON(
+		w,
+		http.StatusOK,
+		refreshResponse{
 			TokenType:             "Bearer",
 			AccessToken:           result.AccessToken.Value(),
 			AccessTokenExpiresAt:  result.AccessToken.ExpiresAt(),
@@ -303,6 +378,46 @@ func (handler *Handler) writeLoginError(
 		errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, session.ErrSessionUnavailable),
 		errors.Is(err, auth.ErrAuthenticationUnavailable):
+		handler.writeError(
+			w,
+			r,
+			http.StatusServiceUnavailable,
+			"authentication_unavailable",
+			"Authentication is temporarily unavailable.",
+		)
+
+	default:
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
+	}
+}
+
+func (handler *Handler) writeRefreshError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+) {
+	switch {
+	case errors.Is(
+		err,
+		session.ErrRefreshTokenInvalid,
+	):
+		handler.writeError(
+			w,
+			r,
+			http.StatusUnauthorized,
+			"invalid_refresh_token",
+			"The refresh token is invalid or expired.",
+		)
+
+	case errors.Is(err, context.Canceled),
+		errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, session.ErrSessionUnavailable):
 		handler.writeError(
 			w,
 			r,

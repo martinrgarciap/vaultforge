@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -205,6 +206,185 @@ func TestRoutesLoginAccount(t *testing.T) {
 		)
 	}
 
+}
+
+func TestRoutesRefreshSession(t *testing.T) {
+	t.Parallel()
+
+	authService := &routeTestAuthService{
+		loginAccount: auth.Account{
+			ID:     "user-123",
+			Email:  "martin@example.com",
+			Status: "active",
+		},
+	}
+
+	app := newApplicationWithAuthService(
+		authService,
+		zap.NewNop().Sugar(),
+	)
+
+	router := app.Routes()
+
+	presentedRefreshToken, err :=
+		session.NewRefreshTokenGenerator().
+			Generate(context.Background())
+	if err != nil {
+		t.Fatalf(
+			"generate presented refresh token: %v",
+			err,
+		)
+	}
+
+	requestBody, err := json.Marshal(
+		struct {
+			RefreshToken string `json:"refreshToken"`
+		}{
+			RefreshToken: presentedRefreshToken.Value(),
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"encode refresh request: %v",
+			err,
+		)
+	}
+
+	request := newAuthRouteRequest(
+		"/v1/auth/refresh",
+		string(requestBody),
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"status = %d, want %d",
+			recorder.Code,
+			http.StatusOK,
+		)
+	}
+
+	var body struct {
+		TokenType             string    `json:"tokenType"`
+		AccessToken           string    `json:"accessToken"`
+		AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
+		RefreshToken          string    `json:"refreshToken"`
+		RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
+	}
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode refresh response: %v",
+			err,
+		)
+	}
+
+	if body.TokenType != "Bearer" {
+		t.Fatalf(
+			"token type = %q, want %q",
+			body.TokenType,
+			"Bearer",
+		)
+	}
+
+	if body.AccessToken == "" {
+		t.Fatal(
+			"expected a non-empty access token",
+		)
+	}
+
+	if body.AccessTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"expected an access-token expiration",
+		)
+	}
+
+	if body.RefreshToken == "" {
+		t.Fatal(
+			"expected a non-empty replacement refresh token",
+		)
+	}
+
+	if body.RefreshToken ==
+		presentedRefreshToken.Value() {
+		t.Fatal(
+			"replacement refresh token matched the presented token",
+		)
+	}
+
+	if body.RefreshTokenExpiresAt.IsZero() {
+		t.Fatal(
+			"expected a refresh-token expiration",
+		)
+	}
+}
+
+func TestRoutesRefreshRejectsInvalidTokenGenerically(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	app := newApplicationWithAuthService(
+		&routeTestAuthService{},
+		zap.NewNop().Sugar(),
+	)
+
+	router := app.Routes()
+
+	request := newAuthRouteRequest(
+		"/v1/auth/refresh",
+		`{
+			"refreshToken": "malformed-refresh-token"
+		}`,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf(
+			"status = %d, want %d",
+			recorder.Code,
+			http.StatusUnauthorized,
+		)
+	}
+
+	var body errorResponseBody
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode response: %v",
+			err,
+		)
+	}
+
+	if body.Error.Code !=
+		"invalid_refresh_token" {
+		t.Fatalf(
+			"error code = %q, want %q",
+			body.Error.Code,
+			"invalid_refresh_token",
+		)
+	}
+
+	responseBody := recorder.Body.String()
+
+	if strings.Contains(responseBody, "malformed") ||
+		strings.Contains(responseBody, "replay") ||
+		strings.Contains(responseBody, "revoked") ||
+		strings.Contains(responseBody, "disabled") {
+		t.Fatal(
+			"refresh response exposed internal token state",
+		)
+	}
 }
 
 func TestRoutesAuthRejectsUnsupportedMethod(

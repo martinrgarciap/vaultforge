@@ -76,9 +76,24 @@ func (
 	return nil
 }
 
-func (
-	sessionStore *testLoginSessionStore,
-) RevokeOwnedFamily(
+func (sessionStore *testLoginSessionStore) RotateRefreshToken(
+	_ context.Context,
+	_ []byte,
+	_ []byte,
+	rotatedAt time.Time,
+) (store.SessionRotation, error) {
+	return store.SessionRotation{
+		ID:            "00000000-0000-0000-0000-000000000103",
+		UserID:        "user-123",
+		TokenFamilyID: "00000000-0000-0000-0000-000000000102",
+		CreatedAt:     rotatedAt,
+		ExpiresAt: rotatedAt.Add(
+			session.DefaultRefreshTokenTTL,
+		),
+	}, nil
+}
+
+func (sessionStore *testLoginSessionStore) RevokeOwnedFamily(
 	_ context.Context,
 	_ string,
 	_ string,

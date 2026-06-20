@@ -7,6 +7,10 @@ var (
 		"refresh token is malformed",
 	)
 
+	ErrRefreshTokenInvalid = errors.New(
+		"refresh token is invalid",
+	)
+
 	ErrRefreshTokenGenerationUnavailable = errors.New(
 		"refresh token generation is unavailable",
 	)

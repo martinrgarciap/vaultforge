@@ -254,6 +254,121 @@ func TestHandlerLogin(t *testing.T) {
 	}
 }
 
+func TestHandlerRefresh(t *testing.T) {
+	t.Parallel()
+
+	loginResult := newHandlerTestLoginResult(t)
+
+	refreshResult := session.RefreshResult{
+		AccessToken:           loginResult.AccessToken,
+		RefreshToken:          loginResult.RefreshToken,
+		RefreshTokenExpiresAt: loginResult.RefreshTokenExpiresAt,
+	}
+
+	service := &fakeAuthService{
+		refreshResult: refreshResult,
+	}
+
+	router := newTestRouter(service)
+
+	requestBody, err := json.Marshal(
+		refreshRequest{
+			RefreshToken: loginResult.RefreshToken.Value(),
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"encode refresh request: %v",
+			err,
+		)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/auth/refresh",
+		bytes.NewReader(requestBody),
+	)
+
+	request.Header.Set(
+		"Content-Type",
+		"application/json",
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"status = %d, want %d",
+			recorder.Code,
+			http.StatusOK,
+		)
+	}
+
+	if service.refreshCalls != 1 {
+		t.Fatalf(
+			"Refresh() calls = %d, want 1",
+			service.refreshCalls,
+		)
+	}
+
+	if service.lastRefreshInput.RefreshToken !=
+		loginResult.RefreshToken.Value() {
+		t.Fatal(
+			"refresh input did not contain the submitted token",
+		)
+	}
+
+	var body refreshResponse
+
+	if err := json.NewDecoder(
+		recorder.Body,
+	).Decode(&body); err != nil {
+		t.Fatalf(
+			"failed to decode refresh response: %v",
+			err,
+		)
+	}
+
+	if body.TokenType != "Bearer" {
+		t.Fatalf(
+			"token type = %q, want Bearer",
+			body.TokenType,
+		)
+	}
+
+	if body.AccessToken !=
+		refreshResult.AccessToken.Value() {
+		t.Fatal(
+			"response access token did not match",
+		)
+	}
+
+	if body.RefreshToken !=
+		refreshResult.RefreshToken.Value() {
+		t.Fatal(
+			"response refresh token did not match",
+		)
+	}
+
+	if !body.AccessTokenExpiresAt.Equal(
+		refreshResult.AccessToken.ExpiresAt(),
+	) {
+		t.Fatal(
+			"response access-token expiration did not match",
+		)
+	}
+
+	if !body.RefreshTokenExpiresAt.Equal(
+		refreshResult.RefreshTokenExpiresAt,
+	) {
+		t.Fatal(
+			"response refresh-token expiration did not match",
+		)
+	}
+}
+
 func TestHandlerRejectsInvalidRequestBodies(
 	t *testing.T,
 ) {
@@ -519,6 +634,127 @@ func TestHandlerMapsAuthenticationFailureSafely(
 	}
 }
 
+func TestHandlerMapsInvalidRefreshTokenGenerically(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		refreshErr: session.ErrRefreshTokenInvalid,
+	}
+
+	router := newTestRouter(service)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/refresh",
+		`{
+			"refreshToken": "synthetic-invalid-refresh-token"
+		}`,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusUnauthorized,
+		"invalid_refresh_token",
+	)
+
+	responseBody := recorder.Body.String()
+
+	if strings.Contains(
+		responseBody,
+		"replay",
+	) ||
+		strings.Contains(
+			responseBody,
+			"revoked",
+		) ||
+		strings.Contains(
+			responseBody,
+			"disabled",
+		) ||
+		strings.Contains(
+			responseBody,
+			"database",
+		) {
+		t.Fatal(
+			"refresh response exposed internal token state",
+		)
+	}
+}
+
+func TestHandlerMapsRefreshDependencyFailureSafely(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		refreshErr: session.ErrSessionUnavailable,
+	}
+
+	router := newTestRouter(service)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/refresh",
+		`{
+			"refreshToken": "synthetic-refresh-token"
+		}`,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusServiceUnavailable,
+		"authentication_unavailable",
+	)
+}
+
+func TestHandlerRefreshRejectsUnknownRequestFields(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{}
+	router := newTestRouter(service)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/refresh",
+		`{
+			"refreshToken": "synthetic-refresh-token",
+			"userID": "user-controlled-value"
+		}`,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusBadRequest,
+		"invalid_request",
+	)
+
+	if service.refreshCalls != 0 {
+		t.Fatalf(
+			"Refresh() calls = %d, want 0",
+			service.refreshCalls,
+		)
+	}
+}
+
 func newTestRouter(
 	service *fakeAuthService,
 ) http.Handler {
@@ -538,6 +774,11 @@ func newTestRouter(
 	router.Post(
 		"/v1/auth/login",
 		handler.Login,
+	)
+
+	router.Post(
+		"/v1/auth/refresh",
+		handler.Refresh,
 	)
 
 	return router
@@ -686,12 +927,16 @@ type fakeAuthService struct {
 	registerErr     error
 	loginResult     session.LoginResult
 	loginErr        error
+	refreshResult   session.RefreshResult
+	refreshErr      error
 
 	registerCalls int
 	loginCalls    int
+	refreshCalls  int
 
 	lastRegisterInput auth.RegisterInput
 	lastLoginInput    session.LoginInput
+	lastRefreshInput  session.RefreshInput
 }
 
 func (service *fakeAuthService) Register(
@@ -721,4 +966,19 @@ func (service *fakeAuthService) Login(
 	}
 
 	return service.loginResult, nil
+}
+
+func (service *fakeAuthService) Refresh(
+	_ context.Context,
+	input session.RefreshInput,
+) (session.RefreshResult, error) {
+	service.refreshCalls++
+	service.lastRefreshInput = input
+
+	if service.refreshErr != nil {
+		return session.RefreshResult{},
+			service.refreshErr
+	}
+
+	return service.refreshResult, nil
 }
