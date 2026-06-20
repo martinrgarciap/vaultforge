@@ -28,5 +28,18 @@ func (app *Application) Routes() http.Handler {
 		router.Get("/ready", app.healthHandler.Ready)
 	})
 
+	router.Route("/v1", func(router chi.Router) {
+		router.Route("/auth", func(router chi.Router) {
+			router.Post(
+				"/register",
+				app.authHandler.Register,
+			)
+			router.Post(
+				"/login",
+				app.authHandler.Login,
+			)
+		})
+	})
+
 	return router
 }

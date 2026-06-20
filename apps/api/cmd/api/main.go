@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 )
 
 func main() {
@@ -51,7 +53,21 @@ func main() {
 		"database connection established",
 	)
 
-	app := api.NewApplication(cfg, logger, databasePool)
+	userStore := store.NewUserStore(
+		databasePool,
+	)
+	passwordHasher := auth.NewArgon2idHasher()
+	authService := auth.NewService(
+		userStore,
+		passwordHasher,
+	)
+
+	app := api.NewApplication(
+		cfg,
+		logger,
+		databasePool,
+		authService,
+	)
 
 	if err := app.Run(); err != nil {
 		logger.Errorw(

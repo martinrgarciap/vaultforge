@@ -1,385 +1,201 @@
 # VaultForge
 
-VaultForge is a backend-first developer secrets vault demonstrating secure Go
-backend engineering, PostgreSQL persistence, browser-side cryptography, and
-distributed-system design.
+VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, cross-language service integration, distributed systems, and browser-side cryptography.
 
-VaultForge is a portfolio and learning project. Only synthetic sample data
-should be used.
+The project is designed for an individual developer storing API keys, environment variables, database connection details, login records, and secure notes.
 
-## Current status
+> VaultForge is a portfolio and learning project, not an audited password manager. Use synthetic data only.
 
-The backend and PostgreSQL foundation are complete.
+## Architecture
 
-Implemented so far:
+VaultForge separates account authentication from vault encryption.
 
-- Go HTTP API using Chi
-- Environment-based configuration
-- Structured Zap logging
-- Request IDs
-- Safe request logging
-- Panic recovery
-- Security headers
-- Request and server timeouts
-- Graceful shutdown
-- Standard JSON responses
-- JSON `404 Not Found` and `405 Method Not Allowed` responses
-- PostgreSQL through `pgxpool`
-- Versioned SQL migrations
-- Database liveness and readiness checks
-- Initial user persistence store
-- PostgreSQL repository integration tests
-- Schema constraint and lifecycle integration tests
-- GitHub Actions PostgreSQL integration testing
-- Vet, Staticcheck, race detection, formatting, and Gitleaks checks
+```mermaid
+flowchart LR
+    B[React and TypeScript Client]
+    W[Rust WASM Crypto]
+    A[Go REST API]
+    H[Rust gRPC Hashing Service]
+    P[(PostgreSQL)]
+    R[(Redis)]
+    Q[RabbitMQ]
+    O[OpenTelemetry]
 
-Authentication is the next major backend phase.
+    B -->|REST and JSON| A
+    B --> W
+    W -->|Encrypted payloads| A
+    A --> P
+    A --> R
+    A -->|Password Hash and Verify| H
+    A --> Q
+    A --> O
+```
 
-Frontend and Rust service work are intentionally deferred until the backend
-foundation is ready for them.
+### Account authentication
 
-## Product direction
+The Go API receives the account password during registration and login. Password operations pass through a replaceable `PasswordHasher` interface.
 
-VaultForge is designed for one individual developer storing:
+The current development implementation uses a local Argon2id adapter. A later Rust gRPC service will replace it without changing the HTTP contracts or authentication service.
 
-- API keys
-- Environment variables
-- Database connection details
-- Login records
-- Secure notes
+### Vault encryption
 
-## Security model
+Vault encryption is a separate future browser-side workflow.
 
-Account authentication and vault encryption are separate concerns.
+A Rust WebAssembly module will derive and manage vault encryption keys in the browser. The Go API must never receive the vault master passphrase, an unwrapped vault key, or decrypted vault contents.
 
-The server authenticates the account.
+## Current state
 
-The browser will eventually encrypt and decrypt vault contents through a Rust
-WebAssembly module.
+The current backend supports:
 
-The Go API may transiently receive the account password during authentication,
-but it must never receive:
+- Account registration
+- Account login
+- Argon2id password hashing with random salts
+- Generic invalid-credential responses
+- PostgreSQL persistence and migrations
+- Database-backed readiness checks
+- Strict JSON request handling and body limits
+- Safe structured logging
+- Real PostgreSQL and authentication integration tests
 
-- The vault master passphrase
-- The key-encryption key
-- The unwrapped vault data-encryption key
-- Decrypted vault contents
+Authentication currently validates credentials but does not issue sessions or tokens. Session management is the next backend phase.
 
-Vault item payloads are stored only as opaque ciphertext and associated
-cryptographic metadata.
+Frontend, Redis, RabbitMQ, Rust services, WebAssembly cryptography, and vault CRUD are intentionally deferred until their roadmap phases.
+
+## Technology
+
+- **Backend:** Go, Chi, pgx, Zap
+- **Database:** PostgreSQL
+- **Authentication:** Argon2id through a replaceable hasher interface
+- **Testing:** Go testing, race detector, real PostgreSQL integration tests
+- **Quality:** gofmt, Vet, Staticcheck, Gitleaks
+- **Planned:** Redis, RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, React, Docker, Kubernetes
 
 ## Repository structure
 
 ```text
 vaultforge/
 ├── apps/
-│   └── api/
-│       ├── cmd/api/
-│       ├── internal/
-│       │   ├── api/
-│       │   ├── db/
-│       │   └── store/
-│       ├── migrations/
-│       ├── go.mod
-│       └── go.sum
+│   └── api/                 # Go HTTP API
 ├── deployments/
-│   └── compose.yaml
+│   └── compose.yaml         # Local PostgreSQL
 ├── docs/
+│   ├── architecture.md
+│   ├── scope.md
+│   └── threat-model.md
 ├── Makefile
 ├── README.md
 ├── SECURITY.md
 └── .env.example
 ```
 
-## Milestones
+## Quick start
 
-- [x] Product scope and security boundaries
-- [x] Repository and CI baseline
-- [x] Go API foundation
-- [x] PostgreSQL schema and migrations
-- [x] PostgreSQL integration testing
-- [ ] Account authentication
-- [ ] Session and refresh-token lifecycle
-- [ ] Vault metadata APIs
-- [ ] Client-side encryption
-- [ ] Encrypted vault item APIs
-- [ ] Rust password-hashing service
-- [ ] Messaging, auditing, and observability
-
-## Local requirements
-
-Install:
+### Requirements
 
 - Go
 - Docker with Docker Compose
 - Make
-- Git
 - Staticcheck
 - golang-migrate
 - direnv
 
-Install Staticcheck:
-
-```bash
-go install honnef.co/go/tools/cmd/staticcheck@latest
-```
-
-On macOS, install the migration CLI and direnv with Homebrew:
-
-```bash
-brew install golang-migrate
-brew install direnv
-```
-
-Configure the direnv shell hook using the instructions printed by Homebrew.
-
-## Environment setup
-
-Copy the example environment file:
+### Configure the environment
 
 ```bash
 cp .env.example .env
-```
-
-Allow direnv to load the local environment:
-
-```bash
 direnv allow
 ```
 
-Confirm the required variables are available without printing their values:
+Only local synthetic values belong in `.env`. Never commit production credentials.
 
-```bash
-test -n "$DATABASE_URL" && echo "DATABASE_URL is set"
-test -n "$TEST_DATABASE_URL" && echo "TEST_DATABASE_URL is set"
-```
-
-The `.env` file is ignored by Git.
-
-Do not commit real credentials or production database URLs.
-
-## Initial setup
-
-Download the Go dependencies:
-
-```bash
-make setup
-```
-
-Start PostgreSQL, create the dedicated test database, and apply the development
-migrations:
+### Start PostgreSQL and apply migrations
 
 ```bash
 make db-setup
 ```
 
-This creates two local databases:
+This prepares:
 
 ```text
 vaultforge       development database
 vaultforge_test  integration-test database
 ```
 
-## Running the API
-
-Start PostgreSQL if it is not already running:
-
-```bash
-make compose-up
-```
-
-Start the API:
+### Start the API
 
 ```bash
 make dev
 ```
 
-The default address is:
+The API runs at:
 
 ```text
 http://localhost:8080
 ```
 
-## Health endpoints
-
-The API exposes:
+## API routes
 
 ```text
-GET /health
-GET /health/live
-GET /health/ready
+GET  /health
+GET  /health/live
+GET  /health/ready
+
+POST /v1/auth/register
+POST /v1/auth/login
 ```
 
-`/health` and `/health/live` report whether the HTTP process is responsive.
+Registration and login accept JSON containing:
 
-`/health/ready` also verifies that PostgreSQL is available. It returns
-`503 Service Unavailable` when the database cannot be reached.
-
-Example:
-
-```bash
-curl -i http://localhost:8080/health/live
-curl -i http://localhost:8080/health/ready
+```json
+{
+  "email": "developer@example.com",
+  "password": "correct horse battery staple"
+}
 ```
 
-## PostgreSQL commands
+See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, and Thunder Client examples.
 
-Start PostgreSQL:
+## Testing and quality
 
-```bash
-make compose-up
-```
-
-View container status:
-
-```bash
-make compose-ps
-```
-
-Follow PostgreSQL logs:
-
-```bash
-make compose-logs
-```
-
-Open a PostgreSQL shell connected to the development database:
-
-```bash
-make db-shell
-```
-
-Stop PostgreSQL while preserving its volume:
-
-```bash
-make compose-stop
-```
-
-Stop the Compose project:
-
-```bash
-make compose-down
-```
-
-## Migration commands
-
-Apply all pending migrations:
-
-```bash
-make migrate-up
-```
-
-Roll back one migration:
-
-```bash
-make migrate-down
-```
-
-Show the current migration version:
-
-```bash
-make migrate-version
-```
-
-Create a new sequential migration:
-
-```bash
-make migrate-create name=create_example
-```
-
-The command creates matching `.up.sql` and `.down.sql` files under
-`apps/api/migrations`.
-
-## Testing
-
-Run the complete test suite with the race detector:
+Run all tests with the race detector:
 
 ```bash
 make test
 ```
 
-The integration tests use `TEST_DATABASE_URL`.
-
-Before the store tests run, they:
-
-1. Roll the dedicated test database back to migration version zero.
-2. Apply every migration from the beginning.
-3. Open a real PostgreSQL connection pool.
-4. Run repository and schema integration tests.
-5. Roll the test database back to version zero after completion.
-
-The normal development database is not modified by integration tests.
-
-## Quality checks
-
-Check formatting:
-
-```bash
-make format-check
-```
-
-Apply formatting:
-
-```bash
-make format
-```
-
-Run Vet and Staticcheck:
-
-```bash
-make lint
-```
-
-Verify downloaded Go modules:
-
-```bash
-make mod-verify
-```
-
-Run every local quality check:
+Run the complete local verification suite:
 
 ```bash
 make verify
 ```
 
-## Continuous integration
+The integration suite rebuilds the dedicated test database from migration version zero and tests real PostgreSQL behavior.
 
-GitHub Actions runs:
+GitHub Actions runs formatting checks, module verification, Vet, Staticcheck, race-enabled tests, PostgreSQL integration tests, and Gitleaks.
 
-- Go formatting checks
-- Module verification
-- `go vet`
-- Staticcheck
-- The full test suite with the race detector
-- PostgreSQL repository and schema integration tests
-- Gitleaks secret scanning
+## Security boundary
 
-The CI Go job starts a dedicated PostgreSQL service and supplies a synthetic
-test database URL.
+VaultForge must never log or expose:
 
-## Documentation
+- Plaintext passwords
+- Encoded password hashes
+- Authorization headers
+- Cookies
+- Access or refresh tokens
+- Database URLs
+- Vault passphrases
+- Encryption keys
+- Decrypted vault data
 
-Project documentation includes:
+Account password hashing and future vault encryption are intentionally separate systems.
 
-- `docs/scope.md`
-- `docs/threat-model.md`
-- `docs/architecture.md`
-- `SECURITY.md`
+See:
 
-## Data policy
-
-Use synthetic sample data only.
-
-Do not enter real:
-
-- Passwords
-- API keys
-- Private keys
-- Database credentials
-- Access tokens
-- Refresh tokens
-- Personal secrets
+- [`SECURITY.md`](SECURITY.md)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/threat-model.md`](docs/threat-model.md)
+- [`docs/scope.md`](docs/scope.md)
 
 ## Disclaimer
 
-VaultForge is a portfolio and learning project. It should not currently be used
-as a production password manager or secrets-management system.
+VaultForge has not received an independent security audit and must not be used for real credentials or production secrets.
