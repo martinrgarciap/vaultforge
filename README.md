@@ -11,24 +11,15 @@ The project is designed for an individual developer storing API keys, environmen
 VaultForge separates account authentication from vault encryption.
 
 ```mermaid
-flowchart LR
-    B[React and TypeScript Client]
-    W[Rust WASM Crypto]
-    A[Go REST API]
-    H[Rust gRPC Hashing Service]
-    P[(PostgreSQL)]
-    R[(Redis)]
-    Q[RabbitMQ]
-    O[OpenTelemetry]
-
-    B -->|REST and JSON| A
-    B --> W
-    W -->|Encrypted payloads| A
-    A --> P
-    A --> R
-    A -->|Password Hash and Verify| H
-    A --> Q
-    A --> O
+graph LR
+    B["React and TypeScript Client"] --> A["Go REST API"]
+    B --> W["Rust WASM Crypto"]
+    W --> A
+    A --> H["Rust gRPC Hashing Service"]
+    A --> P["PostgreSQL"]
+    A --> R["Redis"]
+    A --> Q["RabbitMQ"]
+    A --> O["OpenTelemetry"]
 ```
 
 ### Account authentication
