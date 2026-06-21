@@ -10,6 +10,22 @@ The project is designed for an individual developer storing API keys, environmen
 
 VaultForge separates account authentication from vault encryption.
 
+### Current backend
+
+```text
+Client
+  ↓
+Go REST API
+  ├── Account registration and login
+  ├── Ed25519 access tokens
+  ├── Opaque refresh-token rotation
+  ├── Stateful bearer authorization
+  ├── Session listing and revocation
+  └── PostgreSQL persistence
+```
+
+### Planned platform
+
 ```mermaid
 graph LR
     B["React and TypeScript Client"] --> A["Go REST API"]
@@ -22,11 +38,23 @@ graph LR
     A --> O["OpenTelemetry"]
 ```
 
+Redis, RabbitMQ, OpenTelemetry, Rust services, WebAssembly cryptography, the React client, and vault CRUD remain planned roadmap work.
+
 ### Account authentication
 
 The Go API receives the account password during registration and login. Password operations pass through a replaceable `PasswordHasher` interface.
 
-The current development implementation uses a local Argon2id adapter. A later Rust gRPC service will replace it without changing the HTTP contracts or authentication service.
+The current development implementation uses a local Argon2id adapter. A later Rust gRPC service can replace it without changing the HTTP contracts or authentication service.
+
+Successful login creates a server-side session family and returns:
+
+- A short-lived Ed25519-signed access token
+- A single-use opaque refresh token
+- Access-token and refresh-token expiration times
+
+Refresh tokens are stored in PostgreSQL only as SHA-256 digests. Refresh rotation preserves the session family and detects replay.
+
+Protected routes verify both the access-token signature and the active PostgreSQL session state. Revoking a session therefore invalidates already-issued access tokens immediately.
 
 ### Vault encryption
 
@@ -41,14 +69,21 @@ The current backend supports:
 - Account registration
 - Account login
 - Argon2id password hashing with random salts
-- Generic invalid-credential responses
+- Ed25519 access-token issuance and verification
+- Opaque refresh tokens stored only as SHA-256 digests
+- Atomic refresh-token rotation
+- Refresh-token replay detection and family revocation
+- Stateful bearer authentication backed by PostgreSQL
+- Active-session listing
+- Targeted owned-session revocation
+- Current-session logout
+- Logout-all
+- Generic credential and token failure responses
 - PostgreSQL persistence and migrations
 - Database-backed readiness checks
 - Strict JSON request handling and body limits
 - Safe structured logging
-- Real PostgreSQL and authentication integration tests
-
-Authentication currently validates credentials but does not issue sessions or tokens. Session management is the next backend phase.
+- Real PostgreSQL and HTTP integration tests
 
 Frontend, Redis, RabbitMQ, Rust services, WebAssembly cryptography, and vault CRUD are intentionally deferred until their roadmap phases.
 
@@ -57,6 +92,8 @@ Frontend, Redis, RabbitMQ, Rust services, WebAssembly cryptography, and vault CR
 - **Backend:** Go, Chi, pgx, Zap
 - **Database:** PostgreSQL
 - **Authentication:** Argon2id through a replaceable hasher interface
+- **Tokens:** Ed25519 JWT access tokens and opaque refresh tokens
+- **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Testing:** Go testing, race detector, real PostgreSQL integration tests
 - **Quality:** gofmt, Vet, Staticcheck, Gitleaks
 - **Planned:** Redis, RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, React, Docker, Kubernetes
@@ -97,7 +134,19 @@ cp .env.example .env
 direnv allow
 ```
 
-Only local synthetic values belong in `.env`. Never commit production credentials.
+Generate a local Ed25519 seed:
+
+```bash
+openssl rand -base64 32
+```
+
+Place the generated value in:
+
+```text
+ACCESS_TOKEN_ED25519_SEED_BASE64
+```
+
+Only local synthetic values belong in `.env`. Never commit production credentials or signing keys.
 
 ### Start PostgreSQL and apply migrations
 
@@ -127,24 +176,27 @@ http://localhost:8080
 ## API routes
 
 ```text
-GET  /health
-GET  /health/live
-GET  /health/ready
+GET    /health
+GET    /health/live
+GET    /health/ready
 
-POST /v1/auth/register
-POST /v1/auth/login
+POST   /v1/auth/register
+POST   /v1/auth/login
+POST   /v1/auth/refresh
+
+GET    /v1/sessions
+DELETE /v1/sessions
+DELETE /v1/sessions/current
+DELETE /v1/sessions/{sessionID}
 ```
 
-Registration and login accept JSON containing:
+The session routes require:
 
-```json
-{
-  "email": "developer@example.com",
-  "password": "correct horse battery staple"
-}
+```text
+Authorization: Bearer <access-token>
 ```
 
-See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, and Thunder Client examples.
+See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, security behavior, and Thunder Client examples.
 
 ## Testing and quality
 
@@ -162,6 +214,21 @@ make verify
 
 The integration suite rebuilds the dedicated test database from migration version zero and tests real PostgreSQL behavior.
 
+The current integration coverage includes:
+
+- Registration and login
+- Session creation
+- Access-token verification
+- Refresh-token rotation
+- Replay detection
+- Stateful authorization
+- Session listing
+- Targeted revocation
+- Current logout
+- Logout-all
+- Cross-user ownership isolation
+- Immediate invalidation of revoked access tokens
+
 GitHub Actions runs formatting checks, module verification, Vet, Staticcheck, race-enabled tests, PostgreSQL integration tests, and Gitleaks.
 
 ## Security boundary
@@ -173,12 +240,16 @@ VaultForge must never log or expose:
 - Authorization headers
 - Cookies
 - Access or refresh tokens
+- Refresh-token digests
 - Database URLs
+- Token-signing seeds or private keys
 - Vault passphrases
 - Encryption keys
 - Decrypted vault data
 
-Account password hashing and future vault encryption are intentionally separate systems.
+Account password hashing, session authentication, and future vault encryption are separate security concerns.
+
+During the current backend-only phase, refresh tokens are returned in JSON. Secure cookies and CSRF protection are deferred until frontend integration.
 
 See:
 

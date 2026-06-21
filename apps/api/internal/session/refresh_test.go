@@ -540,18 +540,14 @@ type refreshTestSessionStore struct {
 	revokedAt       time.Time
 }
 
-func (
-	sessionStore *refreshTestSessionStore,
-) Create(
+func (sessionStore *refreshTestSessionStore) Create(
 	_ context.Context,
 	_ *store.Session,
 ) error {
 	return nil
 }
 
-func (
-	sessionStore *refreshTestSessionStore,
-) RotateRefreshToken(
+func (sessionStore *refreshTestSessionStore) RotateRefreshToken(
 	_ context.Context,
 	currentRefreshTokenHash []byte,
 	replacementRefreshTokenHash []byte,
@@ -581,9 +577,7 @@ func (
 	return sessionStore.rotation, nil
 }
 
-func (
-	sessionStore *refreshTestSessionStore,
-) RevokeOwnedFamily(
+func (sessionStore *refreshTestSessionStore) RevokeOwnedFamily(
 	_ context.Context,
 	userID string,
 	tokenFamilyID string,
@@ -596,4 +590,29 @@ func (
 	sessionStore.revokedAt = revokedAt
 
 	return sessionStore.revokeErr
+}
+
+func (sessionStore *refreshTestSessionStore) ListActive(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) ([]store.SessionSummary, error) {
+	return make([]store.SessionSummary, 0), nil
+}
+
+func (sessionStore *refreshTestSessionStore) RevokeAllForUser(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (sessionStore *refreshTestSessionStore) GetActiveState(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) (store.SessionState, error) {
+	return store.SessionState{}, nil
 }

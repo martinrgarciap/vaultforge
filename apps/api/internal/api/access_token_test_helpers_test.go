@@ -101,3 +101,34 @@ func (sessionStore *testLoginSessionStore) RevokeOwnedFamily(
 ) error {
 	return nil
 }
+
+func (sessionStore *testLoginSessionStore) ListActive(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) ([]store.SessionSummary, error) {
+	return make([]store.SessionSummary, 0), nil
+}
+
+func (sessionStore *testLoginSessionStore) RevokeAllForUser(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (sessionStore *testLoginSessionStore) GetActiveState(
+	_ context.Context,
+	userID string,
+	tokenFamilyID string,
+	now time.Time,
+) (store.SessionState, error) {
+	return store.SessionState{
+		UserID:        userID,
+		TokenFamilyID: tokenFamilyID,
+		ExpiresAt: now.Add(
+			session.DefaultRefreshTokenTTL,
+		),
+	}, nil
+}

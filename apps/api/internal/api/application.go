@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/authhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessionhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 
 	"go.uber.org/zap"
@@ -14,6 +15,7 @@ type Application struct {
 	healthHandler  *health.Handler
 	authHandler    *authhandler.Handler
 	sessionService *session.Service
+	sessionHandler *sessionhandler.Handler
 }
 
 func NewApplication(
@@ -36,5 +38,9 @@ func NewApplication(
 			logger,
 		),
 		sessionService: sessionService,
+		sessionHandler: sessionhandler.New(
+			sessionService,
+			logger,
+		),
 	}
 }

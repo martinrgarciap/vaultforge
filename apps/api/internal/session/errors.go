@@ -46,4 +46,8 @@ var (
 	ErrSessionUnavailable = errors.New(
 		"session service is unavailable",
 	)
+
+	ErrSessionNotFound = errors.New(
+		"session was not found",
+	)
 )

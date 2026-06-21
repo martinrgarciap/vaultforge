@@ -34,6 +34,20 @@ func (app *Application) Routes() http.Handler {
 			router.Post("/login", app.authHandler.Login)
 			router.Post("/refresh", app.authHandler.Refresh)
 		})
+
+		router.Group(func(router chi.Router) {
+			router.Use(
+				appmiddleware.RequireAuthentication(
+					app.sessionService,
+					app.logger,
+				),
+			)
+
+			router.Get("/sessions", app.sessionHandler.List)
+			router.Delete("/sessions", app.sessionHandler.LogoutAll)
+			router.Delete("/sessions/current", app.sessionHandler.LogoutCurrent)
+			router.Delete("/sessions/{sessionID}", app.sessionHandler.Revoke)
+		})
 	})
 
 	return router

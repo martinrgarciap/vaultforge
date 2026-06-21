@@ -21,6 +21,13 @@ type SessionStore interface {
 		session *store.Session,
 	) error
 
+	GetActiveState(
+		ctx context.Context,
+		userID string,
+		tokenFamilyID string,
+		now time.Time,
+	) (store.SessionState, error)
+
 	RotateRefreshToken(
 		ctx context.Context,
 		currentRefreshTokenHash []byte,
@@ -32,6 +39,18 @@ type SessionStore interface {
 		ctx context.Context,
 		userID string,
 		tokenFamilyID string,
+		revokedAt time.Time,
+	) error
+
+	ListActive(
+		ctx context.Context,
+		userID string,
+		now time.Time,
+	) ([]store.SessionSummary, error)
+
+	RevokeAllForUser(
+		ctx context.Context,
+		userID string,
 		revokedAt time.Time,
 	) error
 }

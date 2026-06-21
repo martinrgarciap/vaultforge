@@ -665,9 +665,7 @@ func (sessionStore *loginTestSessionStore) RotateRefreshToken(
 	return store.SessionRotation{}, nil
 }
 
-func (
-	sessionStore *loginTestSessionStore,
-) RevokeOwnedFamily(
+func (sessionStore *loginTestSessionStore) RevokeOwnedFamily(
 	_ context.Context,
 	userID string,
 	tokenFamilyID string,
@@ -680,4 +678,29 @@ func (
 	sessionStore.revokedAt = revokedAt
 
 	return sessionStore.revokeErr
+}
+
+func (sessionStore *loginTestSessionStore) ListActive(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) ([]store.SessionSummary, error) {
+	return make([]store.SessionSummary, 0), nil
+}
+
+func (sessionStore *loginTestSessionStore) RevokeAllForUser(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (sessionStore *loginTestSessionStore) GetActiveState(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) (store.SessionState, error) {
+	return store.SessionState{}, nil
 }

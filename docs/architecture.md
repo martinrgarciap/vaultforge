@@ -7,10 +7,11 @@ VaultForge is a backend-first developer secrets vault.
 Its architecture intentionally separates:
 
 1. Account authentication
-2. Vault unlocking and encryption
-3. Persistence
-4. Reliability and asynchronous processing
-5. Observability
+2. Session authentication and authorization
+3. Vault unlocking and encryption
+4. Persistence
+5. Reliability and asynchronous processing
+6. Observability
 
 The project is being built incrementally. Components marked as planned are part of the target architecture but are not currently running.
 
@@ -20,17 +21,31 @@ The project is being built incrementally. Components marked as planned are part 
 flowchart LR
     C[API Client or Thunder Client]
     A[Go API]
-    S[Authentication Service]
+    AH[Authentication Handler]
+    SH[Session Handler]
+    M[Bearer Authentication Middleware]
+    AS[Authentication Service]
+    SS[Session Service]
     H[Local Go Argon2id Adapter]
+    T[Ed25519 Token Manager]
     P[(PostgreSQL)]
 
     C -->|HTTP and JSON| A
-    A --> S
-    S --> H
-    S --> P
+    A --> AH
+    A --> M
+    M --> SH
+    AH --> AS
+    AH --> SS
+    SH --> SS
+    AS --> H
+    AS --> P
+    SS --> T
+    SS --> P
 ```
 
-### Current request flow
+## Current request flow
+
+### Public authentication requests
 
 ```text
 HTTP request
@@ -43,28 +58,57 @@ Strict JSON decoder and body limit
     ↓
 Authentication handler
     ↓
-Authentication service
-    ├── PasswordHasher interface
-    └── UserStore interface
+Authentication or session service
+    ├── PasswordHasher
+    ├── AccessTokenProvider
+    ├── RefreshTokenProvider
+    ├── UserStore
+    └── SessionStore
           ↓
       PostgreSQL
 ```
 
-### Current responsibilities
+### Protected session requests
 
-#### Go API
+```text
+HTTP request
+    ↓
+Chi router
+    ↓
+Request ID, safe logging, recovery, security headers, timeout
+    ↓
+Bearer authentication middleware
+    ├── Parse exactly one Authorization header
+    ├── Verify Ed25519 access-token signature and claims
+    ├── Confirm active session state in PostgreSQL
+    └── Store the authenticated principal in request context
+    ↓
+Session handler
+    ↓
+Session service
+    ↓
+PostgreSQL
+```
+
+## Current responsibilities
+
+### Go API
 
 - Exposes JSON HTTP routes.
 - Handles request validation and public error mapping.
-- Coordinates registration and login.
+- Coordinates registration, login, refresh, authorization, and session management.
 - Normalizes account emails.
 - Applies account-password policy.
 - Calls the replaceable password hasher.
-- Persists user records through the PostgreSQL store.
+- Issues and verifies Ed25519 access tokens.
+- Generates and rotates opaque refresh tokens.
+- Enforces active-session checks for protected requests.
+- Lists and revokes user-owned session families.
+- Persists user and session records through PostgreSQL stores.
 - Exposes liveness and database-backed readiness routes.
 - Logs safe request metadata only.
 
-#### Local Argon2id adapter
+### Local Argon2id adapter
 
 - Implements the `PasswordHasher` interface.
 - Normalizes account passwords using Unicode NFC.
@@ -77,19 +121,46 @@ Authentication service
 
 The local adapter is temporary. It exists so the authentication contract can be completed before the Rust service is built.
 
-#### PostgreSQL
+### Access-token manager
+
+- Signs access tokens with Ed25519.
+- Includes the user ID as the JWT subject.
+- Includes the session-family ID in the `sid` claim.
+- Validates algorithm, key ID, issuer, audience, issued-at, not-before, and expiration.
+- Rejects malformed, expired, incorrectly signed, or incorrectly configured tokens.
+- Never stores access tokens in PostgreSQL.
+- Redacts token and manager values when formatted.
+
+### Session service
+
+- Creates one session family per successful login.
+- Generates opaque refresh tokens.
+- Stores only refresh-token SHA-256 digests.
+- Rotates refresh tokens atomically.
+- Preserves token-family identity and absolute refresh expiration.
+- Revokes the entire token family when rotated-token replay is detected.
+- Validates access tokens against active PostgreSQL session state.
+- Lists active session families for the authenticated user.
+- Revokes the current session, one owned session, or all user sessions.
+- Fails closed when post-commit access-token issuance fails.
+
+### PostgreSQL
 
 Currently stores:
 
 - Users
 - Encoded account-password hashes
 - Password algorithm identifiers
-- Session-ready schema
+- Session rows
+- Refresh-token SHA-256 digests
+- Token-family identifiers
+- Session expiration and revocation timestamps
+- Session user-agent metadata
 - Vault metadata
 - Opaque encrypted item payloads
 - Immutable item-version records
 
-PostgreSQL never stores plaintext account passwords or plaintext vault-item fields.
+PostgreSQL never stores plaintext account passwords, raw refresh tokens, access tokens, or plaintext vault-item fields.
 
 ## Current account registration flow
 
@@ -120,25 +191,111 @@ The store receives only the encoded hash and algorithm identifier. It never rece
 sequenceDiagram
     participant C as Client
     participant A as Go API
-    participant S as Auth Service
+    participant AS as Auth Service
     participant H as PasswordHasher
+    participant SS as Session Service
+    participant T as Token Manager
     participant P as PostgreSQL
 
     C->>A: POST /v1/auth/login
-    A->>S: Email and account password
-    S->>P: Find normalized email
-    P-->>S: User and encoded hash
-    S->>H: Verify password
-    H-->>S: Match or mismatch
-    S-->>A: Safe account or generic failure
-    A-->>C: 200 OK or 401 invalid_credentials
+    A->>AS: Email and account password
+    AS->>P: Find normalized email
+    P-->>AS: User and encoded hash
+    AS->>H: Verify password
+    H-->>AS: Match or mismatch
+    AS-->>SS: Safe account
+    SS->>SS: Generate refresh token
+    SS->>P: Store refresh-token digest and session family
+    P-->>SS: Session ID, family ID, timestamps
+    SS->>T: Issue Ed25519 access token
+    T-->>SS: Access token
+    SS-->>A: Account, access token, refresh token
+    A-->>C: 200 OK
 ```
 
 Unknown emails, incorrect passwords, invalid login input, and disabled accounts produce the same public credentials error.
 
 Unknown accounts also consume password-hashing work to reduce obvious timing differences.
 
-Login does not create a session yet. Session issuance and refresh-token rotation belong to the next phase.
+If access-token issuance fails after session creation, the newly created token family is revoked.
+
+## Current refresh flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as Go API
+    participant SS as Session Service
+    participant T as Token Manager
+    participant P as PostgreSQL
+
+    C->>A: POST /v1/auth/refresh
+    A->>SS: Opaque refresh token
+    SS->>SS: Parse and SHA-256 digest token
+    SS->>SS: Generate replacement refresh token
+    SS->>P: Atomically rotate token row
+    P-->>SS: User ID, family ID, preserved expiration
+    SS->>T: Issue new access token
+    T-->>SS: Access token
+    SS-->>A: New access token and refresh token
+    A-->>C: 200 OK
+```
+
+A successful refresh revokes the submitted refresh-token row and inserts the replacement in the same family.
+
+Reusing a previously rotated refresh token triggers family-wide revocation.
+
+Invalid, expired, revoked, replayed, malformed, and disabled-user refresh states return the same public `invalid_refresh_token` response.
+
+## Current protected-request flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as Auth Middleware
+    participant T as Token Manager
+    participant P as PostgreSQL
+    participant H as Session Handler
+    participant S as Session Service
+
+    C->>M: Authorization: Bearer access-token
+    M->>T: Verify token
+    T-->>M: User ID and session-family ID
+    M->>P: Get active session state
+    P-->>M: Active session or not found
+    M->>H: Request with principal in context
+    H->>S: Authorized session operation
+    S->>P: List or revoke owned session families
+    P-->>S: Result
+    S-->>H: Safe domain result
+    H-->>C: JSON or 204 No Content
+```
+
+Protected requests require both a valid access token and an active PostgreSQL session family.
+
+Revocation therefore invalidates already-issued access tokens immediately instead of waiting for JWT expiration.
+
+## Current session-management behavior
+
+The API exposes:
+
+```text
+GET    /v1/sessions
+DELETE /v1/sessions
+DELETE /v1/sessions/current
+DELETE /v1/sessions/{sessionID}
+```
+
+The session identifier exposed by the API is the token-family ID.
+
+Refresh-token rotation creates a new session row but does not create a second logical session family.
+
+Ownership is enforced by querying with both:
+
+- Authenticated user ID
+- Requested token-family ID
+
+Unknown, already-revoked, and other users’ session identifiers return the same public `session_not_found` result.
 
 ## Target architecture
 
@@ -176,6 +333,8 @@ flowchart LR
 Planned responsibilities:
 
 - Collect the account password during authentication.
+- Store the refresh token in a secure browser cookie after frontend integration.
+- Apply CSRF protection to cookie-authenticated requests.
 - Collect the separate vault master passphrase during vault unlock.
 - Derive and unwrap vault encryption keys through Rust WebAssembly.
 - Encrypt vault items before upload.
@@ -275,14 +434,20 @@ Completed:
 - PostgreSQL schema and migrations
 - Account registration and login
 - Replaceable password-hashing boundary
-- Real PostgreSQL and Argon2id integration tests
+- Session creation on login
+- Ed25519 access-token issuance and verification
+- Opaque refresh-token rotation
+- Replay detection and token-family revocation
+- Stateful authorization middleware
+- Active-session listing
+- Targeted session revocation
+- Current-session logout
+- Logout-all
+- Real PostgreSQL and HTTP integration tests
 
 Next:
 
-- Sessions
-- Access tokens
-- Refresh-token rotation
-- Session revocation
-- Authorization middleware
+- Complete Step 5 documentation and CI checkpoint
+- Begin vault CRUD and ownership enforcement
 
-Later phases add vault CRUD, a minimal client, Redis, RabbitMQ, observability, Rust services, browser-side encryption, deployment, and release documentation.
+Later phases add a minimal client, Redis, RabbitMQ, observability, Rust services, browser-side encryption, deployment, and release documentation.

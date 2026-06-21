@@ -28,4 +28,10 @@ func TestNewApplicationStoresSessionService(
 			"application did not retain the supplied session service",
 		)
 	}
+
+	if app.sessionHandler == nil {
+		t.Fatal(
+			"application did not create the session handler",
+		)
+	}
 }
