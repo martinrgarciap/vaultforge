@@ -58,6 +58,9 @@ func (store *VaultStore) UpdateItem(
 		transaction,
 		"vault_item.updated",
 		updatedItem.ID,
+		updatedItem.VaultID,
+		updatedItem.Type,
+		updatedItem.Version,
 		input.OwnerID,
 		input.CorrelationID,
 	); err != nil {

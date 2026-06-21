@@ -205,9 +205,14 @@ func TestVaultStoreRestoreItemPersistsActiveStateVersionAndAudit(t *testing.T) {
 		)
 	}
 
-	if sanitizedPayload != "{}" {
-		t.Fatalf("sanitized payload = %q, want {}", sanitizedPayload)
-	}
+	assertVaultItemAuditPayload(
+		t,
+		sanitizedPayload,
+		restoredItem.VaultID,
+		restoredItem.Type,
+		restoredItem.Version,
+		string(restoredItem.Payload),
+	)
 }
 
 func TestVaultStoreRestoreItemUsesSafeNotFoundForInaccessibleItems(t *testing.T) {

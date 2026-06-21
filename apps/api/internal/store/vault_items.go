@@ -96,6 +96,9 @@ func (store *VaultStore) CreateItem(
 		transaction,
 		"vault_item.created",
 		createdItem.ID,
+		createdItem.VaultID,
+		createdItem.Type,
+		createdItem.Version,
 		input.OwnerID,
 		input.CorrelationID,
 	); err != nil {
@@ -200,10 +203,22 @@ func insertItemAuditEventInTransaction(
 	transaction pgx.Tx,
 	eventType string,
 	itemID string,
+	vaultID string,
+	itemType vaultdomain.ItemType,
+	version int,
 	actorID string,
 	correlationID string,
 ) error {
-	_, err := transaction.Exec(
+	sanitizedPayload, err := newVaultItemAuditPayload(
+		vaultID,
+		itemType,
+		version,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = transaction.Exec(
 		ctx,
 		`
 			INSERT INTO audit_outbox (
@@ -220,13 +235,14 @@ func insertItemAuditEventInTransaction(
 				$2::uuid,
 				$3::uuid,
 				$4,
-				'{}'::jsonb
+				$5::jsonb
 			)
 		`,
 		eventType,
 		itemID,
 		actorID,
 		correlationID,
+		sanitizedPayload,
 	)
 
 	return err

@@ -220,9 +220,15 @@ func TestVaultStoreUpdateItemPersistsNewVersionAndAudit(t *testing.T) {
 		)
 	}
 
-	if sanitizedPayload != "{}" {
-		t.Fatalf("sanitized payload = %q, want {}", sanitizedPayload)
-	}
+	assertVaultItemAuditPayload(
+		t,
+		sanitizedPayload,
+		updatedItem.VaultID,
+		updatedItem.Type,
+		updatedItem.Version,
+		string(envelope.Payload),
+		string(envelope.Nonce),
+	)
 }
 
 func TestVaultStoreUpdateItemUsesSafeNotFoundForInaccessibleItems(t *testing.T) {

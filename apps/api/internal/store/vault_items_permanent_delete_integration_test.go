@@ -141,9 +141,14 @@ func TestVaultStorePermanentDeleteItemRemovesDeletedItemVersionsAndPreservesAudi
 		)
 	}
 
-	if sanitizedPayload != "{}" {
-		t.Fatalf("sanitized payload = %q, want {}", sanitizedPayload)
-	}
+	assertVaultItemAuditPayload(
+		t,
+		sanitizedPayload,
+		createdItem.VaultID,
+		createdItem.Type,
+		createdItem.Version,
+		string(createdItem.Payload),
+	)
 
 }
 

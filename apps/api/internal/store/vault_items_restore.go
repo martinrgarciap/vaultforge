@@ -58,6 +58,9 @@ func (store *VaultStore) RestoreItem(
 		transaction,
 		"vault_item.restored",
 		restoredItem.ID,
+		restoredItem.VaultID,
+		restoredItem.Type,
+		restoredItem.Version,
 		input.OwnerID,
 		input.CorrelationID,
 	); err != nil {

@@ -161,9 +161,14 @@ func TestVaultStoreSoftDeleteItemPersistsStateAndAudit(t *testing.T) {
 		)
 	}
 
-	if sanitizedPayload != "{}" {
-		t.Fatalf("sanitized payload = %q, want {}", sanitizedPayload)
-	}
+	assertVaultItemAuditPayload(
+		t,
+		sanitizedPayload,
+		deletedItem.VaultID,
+		deletedItem.Type,
+		deletedItem.Version,
+		string(deletedItem.Payload),
+	)
 }
 
 func TestVaultStoreSoftDeleteItemUsesSafeNotFoundForInaccessibleItems(t *testing.T) {

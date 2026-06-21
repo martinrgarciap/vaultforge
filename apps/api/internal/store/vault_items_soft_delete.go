@@ -50,6 +50,9 @@ func (store *VaultStore) SoftDeleteItem(
 		transaction,
 		"vault_item.deleted",
 		deletedItem.ID,
+		deletedItem.VaultID,
+		deletedItem.Type,
+		deletedItem.Version,
 		input.OwnerID,
 		input.CorrelationID,
 	); err != nil {

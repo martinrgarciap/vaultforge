@@ -187,9 +187,15 @@ func TestVaultStoreCreateItemPersistsVersionAndAudit(t *testing.T) {
 		)
 	}
 
-	if sanitizedPayload != "{}" {
-		t.Fatalf("sanitized payload = %q, want {}", sanitizedPayload)
-	}
+	assertVaultItemAuditPayload(
+		t,
+		sanitizedPayload,
+		createdItem.VaultID,
+		createdItem.Type,
+		createdItem.Version,
+		string(envelope.Payload),
+		string(envelope.Nonce),
+	)
 }
 
 func TestVaultStoreCreateItemUsesSafeNotFoundForOtherOwner(t *testing.T) {

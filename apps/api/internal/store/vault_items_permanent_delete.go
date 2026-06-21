@@ -9,6 +9,13 @@ import (
 	vaultdomain "github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
+type permanentlyDeletedItemMetadata struct {
+	ID      string
+	VaultID string
+	Type    vaultdomain.ItemType
+	Version int
+}
+
 func (store *VaultStore) PermanentDeleteItem(
 	ctx context.Context,
 	input vaultdomain.PermanentDeleteItemStoreInput,
@@ -37,7 +44,7 @@ func (store *VaultStore) PermanentDeleteItem(
 		}
 	}()
 
-	deletedItemID, err := permanentDeleteItemInTransaction(
+	deletedItem, err := permanentDeleteItemInTransaction(
 		queryContext,
 		transaction,
 		input,
@@ -53,7 +60,10 @@ func (store *VaultStore) PermanentDeleteItem(
 		queryContext,
 		transaction,
 		"vault_item.permanently_deleted",
-		deletedItemID,
+		deletedItem.ID,
+		deletedItem.VaultID,
+		deletedItem.Type,
+		deletedItem.Version,
 		input.OwnerID,
 		input.CorrelationID,
 	); err != nil {
@@ -73,8 +83,11 @@ func permanentDeleteItemInTransaction(
 	ctx context.Context,
 	transaction pgx.Tx,
 	input vaultdomain.PermanentDeleteItemStoreInput,
-) (string, error) {
-	var deletedItemID string
+) (permanentlyDeletedItemMetadata, error) {
+	var (
+		deletedItem    permanentlyDeletedItemMetadata
+		storedItemType string
+	)
 
 	err := transaction.QueryRow(
 		ctx,
@@ -87,18 +100,35 @@ func permanentDeleteItemInTransaction(
 			  AND vaults.owner_id = $3::uuid
 			  AND items.deleted_at IS NOT NULL
 			  AND items.version = $4
-			RETURNING items.id::text
+			RETURNING
+				items.id::text,
+				items.vault_id::text,
+				items.item_type,
+				items.version
 		`,
 		input.ItemID,
 		input.VaultID,
 		input.OwnerID,
 		input.ExpectedVersion,
-	).Scan(&deletedItemID)
+	).Scan(
+		&deletedItem.ID,
+		&deletedItem.VaultID,
+		&storedItemType,
+		&deletedItem.Version,
+	)
 	if err != nil {
-		return "", err
+		return permanentlyDeletedItemMetadata{}, err
 	}
 
-	return deletedItemID, nil
+	itemType, err := vaultdomain.ParseItemType(storedItemType)
+	if err != nil {
+		return permanentlyDeletedItemMetadata{},
+			fmt.Errorf("parse permanently deleted item type: %w", err)
+	}
+
+	deletedItem.Type = itemType
+
+	return deletedItem, nil
 }
 
 func classifyPermanentDeleteItemMiss(

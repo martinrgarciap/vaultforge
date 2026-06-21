@@ -221,10 +221,13 @@ func TestVaultStoreRenameOwnedCommitsVaultAndAuditEvent(
 		)
 	}
 
-	if sanitizedPayload != "{}" {
+	const wantSanitizedPayload = `{"schemaVersion": 1}`
+
+	if sanitizedPayload != wantSanitizedPayload {
 		t.Fatalf(
-			"sanitized payload = %q, want empty object",
+			"sanitized payload = %q, want %q",
 			sanitizedPayload,
+			wantSanitizedPayload,
 		)
 	}
 

@@ -491,7 +491,12 @@ func insertVaultAuditEventInTransaction(
 	actorID string,
 	correlationID string,
 ) error {
-	_, err := transaction.Exec(
+	sanitizedPayload, err := newVaultAuditPayload()
+	if err != nil {
+		return err
+	}
+
+	_, err = transaction.Exec(
 		ctx,
 		`
 			INSERT INTO audit_outbox (
@@ -508,13 +513,14 @@ func insertVaultAuditEventInTransaction(
 				$2::uuid,
 				$3::uuid,
 				$4,
-				'{}'::jsonb
+				$5::jsonb
 			)
 		`,
 		eventType,
 		vaultID,
 		actorID,
 		correlationID,
+		sanitizedPayload,
 	)
 
 	return err
