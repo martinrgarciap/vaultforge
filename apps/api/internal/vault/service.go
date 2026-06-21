@@ -85,14 +85,17 @@ type DeleteStoreInput struct {
 
 type Service struct {
 	vaults Store
+	items  ItemStore
 }
 
-func NewService(
-	vaults Store,
-) *Service {
-	return &Service{
-		vaults: vaults,
+func NewService(vaults Store) *Service {
+	service := &Service{vaults: vaults}
+
+	if items, ok := vaults.(ItemStore); ok {
+		service.items = items
 	}
+
+	return service
 }
 
 func (service *Service) Create(
