@@ -9,11 +9,12 @@ import (
 )
 
 type CreateItemInput struct {
-	OwnerID       string
-	VaultID       string
-	Type          ItemType
-	Payload       json.RawMessage
-	CorrelationID string
+	OwnerID        string
+	VaultID        string
+	Type           ItemType
+	Payload        json.RawMessage
+	IdempotencyKey string
+	CorrelationID  string
 }
 
 func (service *Service) CreateItem(
@@ -49,6 +50,15 @@ func (service *Service) CreateItem(
 		return Item{}, err
 	}
 
+	idempotency, err := NewItemCreateIdempotency(
+		input.IdempotencyKey,
+		input.Type,
+		envelope,
+	)
+	if err != nil {
+		return Item{}, err
+	}
+
 	createdItem, err := service.items.CreateItem(
 		ctx,
 		CreateItemStoreInput{
@@ -56,6 +66,7 @@ func (service *Service) CreateItem(
 			VaultID:       input.VaultID,
 			Type:          input.Type,
 			Envelope:      envelope,
+			Idempotency:   idempotency,
 			CorrelationID: input.CorrelationID,
 		},
 	)
@@ -117,10 +128,12 @@ func mapItemOperationError(operation string, err error) error {
 	switch {
 	case errors.Is(err, ErrVaultNotFound):
 		return ErrVaultNotFound
-
 	case errors.Is(err, ErrItemNotFound):
 		return ErrItemNotFound
-
+	case errors.Is(err, ErrItemConflict):
+		return ErrItemConflict
+	case errors.Is(err, ErrItemIdempotencyConflict):
+		return ErrItemIdempotencyConflict
 	case errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):
 		return err

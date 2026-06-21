@@ -18,10 +18,11 @@ func TestVaultStoreRestoreItemPersistsActiveStateVersionAndAudit(t *testing.T) {
 	deletedItem, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	)
 	if err != nil {
@@ -31,10 +32,11 @@ func TestVaultStoreRestoreItemPersistsActiveStateVersionAndAudit(t *testing.T) {
 	restoredItem, err := fixture.store.RestoreItem(
 		context.Background(),
 		vaultdomain.RestoreItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemRestoreCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemRestoreCorrelationID,
 		},
 	)
 	if err != nil {
@@ -215,10 +217,11 @@ func TestVaultStoreRestoreItemUsesSafeNotFoundForInaccessibleItems(t *testing.T)
 	if _, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	); err != nil {
 		t.Fatalf("SoftDeleteItem() error = %v", err)
@@ -231,28 +234,31 @@ func TestVaultStoreRestoreItemUsesSafeNotFoundForInaccessibleItems(t *testing.T)
 		{
 			name: "other owner",
 			input: vaultdomain.RestoreItemStoreInput{
-				OwnerID:       fixture.otherOwnerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemRestoreCorrelationID,
+				OwnerID:         fixture.otherOwnerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemRestoreCorrelationID,
 			},
 		},
 		{
 			name: "wrong parent vault",
 			input: vaultdomain.RestoreItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.otherVaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemRestoreCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.otherVaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemRestoreCorrelationID,
 			},
 		},
 		{
 			name: "unknown item",
 			input: vaultdomain.RestoreItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        vaultItemUnknownID,
-				CorrelationID: vaultItemRestoreCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          vaultItemUnknownID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemRestoreCorrelationID,
 			},
 		},
 	}
@@ -279,10 +285,11 @@ func TestVaultStoreRestoreItemRejectsActiveItem(t *testing.T) {
 	_, err := fixture.store.RestoreItem(
 		context.Background(),
 		vaultdomain.RestoreItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemRestoreCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemRestoreCorrelationID,
 		},
 	)
 
@@ -298,10 +305,11 @@ func TestVaultStoreRestoreItemRollsBackWhenAuditInsertFails(t *testing.T) {
 	if _, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	); err != nil {
 		t.Fatalf("SoftDeleteItem() error = %v", err)
@@ -310,10 +318,11 @@ func TestVaultStoreRestoreItemRollsBackWhenAuditInsertFails(t *testing.T) {
 	_, err := fixture.store.RestoreItem(
 		context.Background(),
 		vaultdomain.RestoreItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: "",
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "",
 		},
 	)
 
@@ -402,5 +411,138 @@ func TestVaultStoreRestoreItemMapsMissingDatabaseSafely(t *testing.T) {
 
 	if !errors.Is(err, ErrDatabase) {
 		t.Fatalf("RestoreItem() error = %v, want %v", err, ErrDatabase)
+	}
+}
+
+func TestVaultStoreRestoreItemReturnsConflictForStaleVersion(t *testing.T) {
+	fixture := newVaultItemIntegrationFixture(t)
+	createdItem := createVaultItemForGetTest(t, fixture)
+
+	deletedItem, err := fixture.store.SoftDeleteItem(
+		context.Background(),
+		vaultdomain.SoftDeleteItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-first-soft-delete",
+		},
+	)
+	if err != nil {
+		t.Fatalf("first SoftDeleteItem() error = %v", err)
+	}
+
+	firstRestore, err := fixture.store.RestoreItem(
+		context.Background(),
+		vaultdomain.RestoreItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: deletedItem.Version,
+			CorrelationID:   "vault-item-first-restore",
+		},
+	)
+	if err != nil {
+		t.Fatalf("first RestoreItem() error = %v", err)
+	}
+
+	if firstRestore.Version != 2 {
+		t.Fatalf("first restored version = %d, want 2", firstRestore.Version)
+	}
+
+	secondDeletedItem, err := fixture.store.SoftDeleteItem(
+		context.Background(),
+		vaultdomain.SoftDeleteItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: firstRestore.Version,
+			CorrelationID:   "vault-item-second-soft-delete",
+		},
+	)
+	if err != nil {
+		t.Fatalf("second SoftDeleteItem() error = %v", err)
+	}
+
+	if secondDeletedItem.Version != 2 {
+		t.Fatalf("second deleted version = %d, want 2", secondDeletedItem.Version)
+	}
+
+	_, err = fixture.store.RestoreItem(
+		context.Background(),
+		vaultdomain.RestoreItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-stale-restore",
+		},
+	)
+	if !errors.Is(err, vaultdomain.ErrItemConflict) {
+		t.Fatalf(
+			"stale RestoreItem() error = %v, want %v",
+			err,
+			vaultdomain.ErrItemConflict,
+		)
+	}
+
+	storedDeletedItem, err := fixture.store.GetItem(
+		context.Background(),
+		vaultdomain.GetItemStoreInput{
+			OwnerID: fixture.ownerID,
+			VaultID: fixture.vaultID,
+			ItemID:  createdItem.ID,
+			State:   vaultdomain.ItemListStateDeleted,
+		},
+	)
+	if err != nil {
+		t.Fatalf("read item after stale restore: %v", err)
+	}
+
+	if !storedDeletedItem.Deleted() {
+		t.Fatal("stale restore changed the deleted item state")
+	}
+
+	if storedDeletedItem.Version != 2 {
+		t.Fatalf("stored deleted version = %d, want 2", storedDeletedItem.Version)
+	}
+
+	queryContext, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancelQuery()
+
+	var (
+		versionCount int
+		restoreCount int
+	)
+
+	err = testDatabasePool.QueryRow(
+		queryContext,
+		`
+			SELECT
+				(
+					SELECT count(*)
+					FROM item_versions
+					WHERE vault_item_id = $1::uuid
+				),
+				(
+					SELECT count(*)
+					FROM audit_outbox
+					WHERE aggregate_type = 'vault_item'
+					  AND aggregate_id = $1::uuid
+					  AND event_type = 'vault_item.restored'
+				)
+		`,
+		createdItem.ID,
+	).Scan(&versionCount, &restoreCount)
+	if err != nil {
+		t.Fatalf("count stale restore rows: %v", err)
+	}
+
+	if versionCount != 2 {
+		t.Fatalf("item version count = %d, want 2", versionCount)
+	}
+
+	if restoreCount != 1 {
+		t.Fatalf("restore audit count = %d, want 1", restoreCount)
 	}
 }

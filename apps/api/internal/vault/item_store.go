@@ -17,6 +17,7 @@ type CreateItemStoreInput struct {
 	VaultID       string
 	Type          ItemType
 	Envelope      SyntheticItemEnvelope
+	Idempotency   ItemCreateIdempotency
 	CorrelationID string
 }
 
@@ -34,31 +35,35 @@ type GetItemStoreInput struct {
 }
 
 type UpdateItemStoreInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	Type          ItemType
-	Envelope      SyntheticItemEnvelope
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	Type            ItemType
+	Envelope        SyntheticItemEnvelope
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 type SoftDeleteItemStoreInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 type RestoreItemStoreInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 type PermanentDeleteItemStoreInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }

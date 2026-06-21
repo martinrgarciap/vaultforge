@@ -8,12 +8,13 @@ import (
 )
 
 type UpdateItemInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	Type          ItemType
-	Payload       json.RawMessage
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	Type            ItemType
+	Payload         json.RawMessage
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 func (service *Service) UpdateItem(
@@ -53,15 +54,20 @@ func (service *Service) UpdateItem(
 		return Item{}, err
 	}
 
+	if err := ValidateExpectedItemVersion(input.ExpectedVersion); err != nil {
+		return Item{}, err
+	}
+
 	updatedItem, err := service.items.UpdateItem(
 		ctx,
 		UpdateItemStoreInput{
-			OwnerID:       input.OwnerID,
-			VaultID:       input.VaultID,
-			ItemID:        input.ItemID,
-			Type:          input.Type,
-			Envelope:      envelope,
-			CorrelationID: input.CorrelationID,
+			OwnerID:         input.OwnerID,
+			VaultID:         input.VaultID,
+			ItemID:          input.ItemID,
+			Type:            input.Type,
+			Envelope:        envelope,
+			ExpectedVersion: input.ExpectedVersion,
+			CorrelationID:   input.CorrelationID,
 		},
 	)
 	if err != nil {
@@ -71,7 +77,7 @@ func (service *Service) UpdateItem(
 	if !validStoredItem(updatedItem, input.VaultID, ItemListStateActive) ||
 		updatedItem.ID != input.ItemID ||
 		updatedItem.Type != input.Type ||
-		updatedItem.Version < 2 ||
+		updatedItem.Version != input.ExpectedVersion+1 ||
 		!bytes.Equal(updatedItem.Payload, envelope.Payload) {
 		return Item{}, fmt.Errorf("update vault item: %w", ErrItemUnavailable)
 	}

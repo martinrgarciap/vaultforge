@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -17,10 +18,11 @@ func TestVaultStoreSoftDeleteItemPersistsStateAndAudit(t *testing.T) {
 	deletedItem, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	)
 	if err != nil {
@@ -175,28 +177,31 @@ func TestVaultStoreSoftDeleteItemUsesSafeNotFoundForInaccessibleItems(t *testing
 		{
 			name: "other owner",
 			input: vaultdomain.SoftDeleteItemStoreInput{
-				OwnerID:       fixture.otherOwnerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemDeleteCorrelationID,
+				OwnerID:         fixture.otherOwnerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemDeleteCorrelationID,
 			},
 		},
 		{
 			name: "wrong parent vault",
 			input: vaultdomain.SoftDeleteItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.otherVaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemDeleteCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.otherVaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemDeleteCorrelationID,
 			},
 		},
 		{
 			name: "unknown item",
 			input: vaultdomain.SoftDeleteItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        vaultItemUnknownID,
-				CorrelationID: vaultItemDeleteCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          vaultItemUnknownID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemDeleteCorrelationID,
 			},
 		},
 	}
@@ -221,10 +226,11 @@ func TestVaultStoreSoftDeleteItemRejectsAlreadyDeletedItem(t *testing.T) {
 	createdItem := createVaultItemForGetTest(t, fixture)
 
 	input := vaultdomain.SoftDeleteItemStoreInput{
-		OwnerID:       fixture.ownerID,
-		VaultID:       fixture.vaultID,
-		ItemID:        createdItem.ID,
-		CorrelationID: vaultItemDeleteCorrelationID,
+		OwnerID:         fixture.ownerID,
+		VaultID:         fixture.vaultID,
+		ItemID:          createdItem.ID,
+		ExpectedVersion: 1,
+		CorrelationID:   vaultItemDeleteCorrelationID,
 	}
 
 	if _, err := fixture.store.SoftDeleteItem(context.Background(), input); err != nil {
@@ -245,10 +251,11 @@ func TestVaultStoreSoftDeleteItemRollsBackWhenAuditInsertFails(t *testing.T) {
 	_, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: "",
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "",
 		},
 	)
 
@@ -332,5 +339,99 @@ func TestVaultStoreSoftDeleteItemMapsMissingDatabaseSafely(t *testing.T) {
 
 	if !errors.Is(err, ErrDatabase) {
 		t.Fatalf("SoftDeleteItem() error = %v, want %v", err, ErrDatabase)
+	}
+}
+
+func TestVaultStoreSoftDeleteItemReturnsConflictForStaleVersion(t *testing.T) {
+	fixture := newVaultItemIntegrationFixture(t)
+	createdItem := createVaultItemForGetTest(t, fixture)
+
+	envelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"value":"newer-version"}`),
+	)
+	if err != nil {
+		t.Fatalf("create newer-version envelope: %v", err)
+	}
+
+	updatedItem, err := fixture.store.UpdateItem(
+		context.Background(),
+		vaultdomain.UpdateItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        envelope,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-update-before-soft-delete",
+		},
+	)
+	if err != nil {
+		t.Fatalf("UpdateItem() error = %v", err)
+	}
+
+	if updatedItem.Version != 2 {
+		t.Fatalf("updated version = %d, want 2", updatedItem.Version)
+	}
+
+	_, err = fixture.store.SoftDeleteItem(
+		context.Background(),
+		vaultdomain.SoftDeleteItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
+		},
+	)
+	if !errors.Is(err, vaultdomain.ErrItemConflict) {
+		t.Fatalf(
+			"stale SoftDeleteItem() error = %v, want %v",
+			err,
+			vaultdomain.ErrItemConflict,
+		)
+	}
+
+	activeItem, err := fixture.store.GetItem(
+		context.Background(),
+		vaultdomain.GetItemStoreInput{
+			OwnerID: fixture.ownerID,
+			VaultID: fixture.vaultID,
+			ItemID:  createdItem.ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("read item after stale soft delete: %v", err)
+	}
+
+	if activeItem.Deleted() {
+		t.Fatal("stale soft delete changed the item state")
+	}
+
+	if activeItem.Version != 2 {
+		t.Fatalf("active item version = %d, want 2", activeItem.Version)
+	}
+
+	queryContext, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancelQuery()
+
+	var deletedAuditCount int
+
+	err = testDatabasePool.QueryRow(
+		queryContext,
+		`
+			SELECT count(*)
+			FROM audit_outbox
+			WHERE aggregate_type = 'vault_item'
+			  AND aggregate_id = $1::uuid
+			  AND event_type = 'vault_item.deleted'
+		`,
+		createdItem.ID,
+	).Scan(&deletedAuditCount)
+	if err != nil {
+		t.Fatalf("count stale soft-delete audit events: %v", err)
+	}
+
+	if deletedAuditCount != 0 {
+		t.Fatalf("deleted audit count = %d, want 0", deletedAuditCount)
 	}
 }

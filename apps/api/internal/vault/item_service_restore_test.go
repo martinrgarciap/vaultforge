@@ -66,6 +66,13 @@ func TestServiceRestoreItemRestoresOwnedItem(t *testing.T) {
 		)
 	}
 
+	if store.lastRestoreInput.ExpectedVersion != 1 {
+		t.Fatalf(
+			"expected version = %d, want 1",
+			store.lastRestoreInput.ExpectedVersion,
+		)
+	}
+
 	if store.lastRestoreInput.CorrelationID != itemServiceRestoreRequest {
 		t.Fatalf(
 			"correlation ID = %q, want %q",
@@ -137,6 +144,17 @@ func TestServiceRestoreItemRejectsInvalidInputs(t *testing.T) {
 			},
 			wantErr: ErrCorrelationIDInvalid,
 		},
+		{
+			name: "invalid expected version",
+			input: RestoreItemInput{
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 0,
+				CorrelationID:   itemServiceRestoreRequest,
+			},
+			wantErr: ErrItemVersionInvalid,
+		},
 	}
 
 	for _, test := range tests {
@@ -183,6 +201,11 @@ func TestServiceRestoreItemMapsStoreErrorsSafely(t *testing.T) {
 			name:     "internal failure",
 			storeErr: errors.New(internalMarker),
 			wantErr:  ErrItemUnavailable,
+		},
+		{
+			name:     "version conflict",
+			storeErr: ErrItemConflict,
+			wantErr:  ErrItemConflict,
 		},
 	}
 
@@ -352,9 +375,10 @@ func TestServiceRestoreItemPreservesCanceledContext(t *testing.T) {
 
 func validItemServiceRestoreInput() RestoreItemInput {
 	return RestoreItemInput{
-		OwnerID:       itemServiceTestOwnerID,
-		VaultID:       itemServiceTestVaultID,
-		ItemID:        itemServiceTestItemID,
-		CorrelationID: itemServiceRestoreRequest,
+		OwnerID:         itemServiceTestOwnerID,
+		VaultID:         itemServiceTestVaultID,
+		ItemID:          itemServiceTestItemID,
+		ExpectedVersion: 1,
+		CorrelationID:   itemServiceRestoreRequest,
 	}
 }

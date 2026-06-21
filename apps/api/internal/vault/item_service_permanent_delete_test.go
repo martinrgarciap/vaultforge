@@ -54,6 +54,13 @@ func TestServicePermanentDeleteItemDeletesOwnedItem(t *testing.T) {
 		)
 	}
 
+	if store.lastPermanentDeleteInput.ExpectedVersion != 1 {
+		t.Fatalf(
+			"expected version = %d, want 1",
+			store.lastPermanentDeleteInput.ExpectedVersion,
+		)
+	}
+
 	if store.lastPermanentDeleteInput.CorrelationID != itemServicePermanentDeleteRequest {
 		t.Fatalf(
 			"correlation ID = %q, want %q",
@@ -109,6 +116,17 @@ func TestServicePermanentDeleteItemRejectsInvalidInputs(t *testing.T) {
 			},
 			wantErr: ErrCorrelationIDInvalid,
 		},
+		{
+			name: "invalid expected version",
+			input: PermanentDeleteItemInput{
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 0,
+				CorrelationID:   itemServicePermanentDeleteRequest,
+			},
+			wantErr: ErrItemVersionInvalid,
+		},
 	}
 
 	for _, test := range tests {
@@ -159,6 +177,11 @@ func TestServicePermanentDeleteItemMapsStoreErrorsSafely(t *testing.T) {
 			name:     "internal failure",
 			storeErr: errors.New(internalMarker),
 			wantErr:  ErrItemUnavailable,
+		},
+		{
+			name:     "version conflict",
+			storeErr: ErrItemConflict,
+			wantErr:  ErrItemConflict,
 		},
 	}
 
@@ -239,9 +262,10 @@ func TestServicePermanentDeleteItemPreservesCanceledContext(t *testing.T) {
 
 func validItemServicePermanentDeleteInput() PermanentDeleteItemInput {
 	return PermanentDeleteItemInput{
-		OwnerID:       itemServiceTestOwnerID,
-		VaultID:       itemServiceTestVaultID,
-		ItemID:        itemServiceTestItemID,
-		CorrelationID: itemServicePermanentDeleteRequest,
+		OwnerID:         itemServiceTestOwnerID,
+		VaultID:         itemServiceTestVaultID,
+		ItemID:          itemServiceTestItemID,
+		ExpectedVersion: 1,
+		CorrelationID:   itemServicePermanentDeleteRequest,
 	}
 }

@@ -29,12 +29,13 @@ func TestVaultStoreUpdateItemPersistsNewVersionAndAudit(t *testing.T) {
 	updatedItem, err := fixture.store.UpdateItem(
 		context.Background(),
 		vaultdomain.UpdateItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			Type:          vaultdomain.ItemTypeAPIKey,
-			Envelope:      envelope,
-			CorrelationID: vaultItemUpdateCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        envelope,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemUpdateCorrelationID,
 		},
 	)
 	if err != nil {
@@ -242,34 +243,37 @@ func TestVaultStoreUpdateItemUsesSafeNotFoundForInaccessibleItems(t *testing.T) 
 		{
 			name: "other owner",
 			input: vaultdomain.UpdateItemStoreInput{
-				OwnerID:       fixture.otherOwnerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        createdItem.ID,
-				Type:          vaultdomain.ItemTypeAPIKey,
-				Envelope:      envelope,
-				CorrelationID: vaultItemUpdateCorrelationID,
+				OwnerID:         fixture.otherOwnerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          createdItem.ID,
+				Type:            vaultdomain.ItemTypeAPIKey,
+				Envelope:        envelope,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemUpdateCorrelationID,
 			},
 		},
 		{
 			name: "wrong parent vault",
 			input: vaultdomain.UpdateItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.otherVaultID,
-				ItemID:        createdItem.ID,
-				Type:          vaultdomain.ItemTypeAPIKey,
-				Envelope:      envelope,
-				CorrelationID: vaultItemUpdateCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.otherVaultID,
+				ItemID:          createdItem.ID,
+				Type:            vaultdomain.ItemTypeAPIKey,
+				Envelope:        envelope,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemUpdateCorrelationID,
 			},
 		},
 		{
 			name: "unknown item",
 			input: vaultdomain.UpdateItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        vaultItemUnknownID,
-				Type:          vaultdomain.ItemTypeAPIKey,
-				Envelope:      envelope,
-				CorrelationID: vaultItemUpdateCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          vaultItemUnknownID,
+				Type:            vaultdomain.ItemTypeAPIKey,
+				Envelope:        envelope,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemUpdateCorrelationID,
 			},
 		},
 	}
@@ -301,12 +305,13 @@ func TestVaultStoreUpdateItemRejectsDeletedItem(t *testing.T) {
 	_, err = fixture.store.UpdateItem(
 		context.Background(),
 		vaultdomain.UpdateItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			Type:          vaultdomain.ItemTypeAPIKey,
-			Envelope:      envelope,
-			CorrelationID: vaultItemUpdateCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        envelope,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemUpdateCorrelationID,
 		},
 	)
 
@@ -329,12 +334,13 @@ func TestVaultStoreUpdateItemRollsBackWhenAuditInsertFails(t *testing.T) {
 	_, err = fixture.store.UpdateItem(
 		context.Background(),
 		vaultdomain.UpdateItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			Type:          vaultdomain.ItemTypeAPIKey,
-			Envelope:      envelope,
-			CorrelationID: "",
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        envelope,
+			ExpectedVersion: 1,
+			CorrelationID:   "",
 		},
 	)
 
@@ -426,5 +432,311 @@ func TestVaultStoreUpdateItemMapsMissingDatabaseSafely(t *testing.T) {
 
 	if !errors.Is(err, ErrDatabase) {
 		t.Fatalf("UpdateItem() error = %v, want %v", err, ErrDatabase)
+	}
+}
+
+func TestVaultStoreUpdateItemReturnsConflictForStaleVersion(t *testing.T) {
+	fixture := newVaultItemIntegrationFixture(t)
+	createdItem := createVaultItemForGetTest(t, fixture)
+
+	firstEnvelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"value":"first-update"}`),
+	)
+	if err != nil {
+		t.Fatalf("create first update envelope: %v", err)
+	}
+
+	firstUpdate, err := fixture.store.UpdateItem(
+		context.Background(),
+		vaultdomain.UpdateItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        firstEnvelope,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-first-update",
+		},
+	)
+	if err != nil {
+		t.Fatalf("first UpdateItem() error = %v", err)
+	}
+
+	if firstUpdate.Version != 2 {
+		t.Fatalf("first update version = %d, want 2", firstUpdate.Version)
+	}
+
+	staleEnvelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"value":"stale-update"}`),
+	)
+	if err != nil {
+		t.Fatalf("create stale update envelope: %v", err)
+	}
+
+	_, err = fixture.store.UpdateItem(
+		context.Background(),
+		vaultdomain.UpdateItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeEnvironmentVariable,
+			Envelope:        staleEnvelope,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-stale-update",
+		},
+	)
+	if !errors.Is(err, vaultdomain.ErrItemConflict) {
+		t.Fatalf("stale UpdateItem() error = %v, want %v", err, vaultdomain.ErrItemConflict)
+	}
+
+	storedItem, err := fixture.store.GetItem(
+		context.Background(),
+		vaultdomain.GetItemStoreInput{
+			OwnerID: fixture.ownerID,
+			VaultID: fixture.vaultID,
+			ItemID:  createdItem.ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("read item after stale update: %v", err)
+	}
+
+	if storedItem.Version != 2 {
+		t.Fatalf("stored version = %d, want 2", storedItem.Version)
+	}
+
+	if storedItem.Type != vaultdomain.ItemTypeAPIKey {
+		t.Fatalf("stored type = %q, want %q", storedItem.Type, vaultdomain.ItemTypeAPIKey)
+	}
+
+	if !bytes.Equal(storedItem.Payload, firstEnvelope.Payload) {
+		t.Fatal("stale update changed the stored payload")
+	}
+
+	queryContext, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancelQuery()
+
+	var (
+		versionCount int
+		auditCount   int
+	)
+
+	err = testDatabasePool.QueryRow(
+		queryContext,
+		`
+			SELECT
+				(
+					SELECT count(*)
+					FROM item_versions
+					WHERE vault_item_id = $1::uuid
+				),
+				(
+					SELECT count(*)
+					FROM audit_outbox
+					WHERE aggregate_type = 'vault_item'
+					  AND aggregate_id = $1::uuid
+					  AND event_type = 'vault_item.updated'
+				)
+		`,
+		createdItem.ID,
+	).Scan(&versionCount, &auditCount)
+	if err != nil {
+		t.Fatalf("count stale update rows: %v", err)
+	}
+
+	if versionCount != 2 {
+		t.Fatalf("item version count = %d, want 2", versionCount)
+	}
+
+	if auditCount != 1 {
+		t.Fatalf("updated audit count = %d, want 1", auditCount)
+	}
+}
+
+func TestVaultStoreUpdateItemAllowsOnlyOneConcurrentWriter(t *testing.T) {
+	fixture := newVaultItemIntegrationFixture(t)
+	createdItem := createVaultItemForGetTest(t, fixture)
+
+	firstEnvelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"writer":"first"}`),
+	)
+	if err != nil {
+		t.Fatalf("create first writer envelope: %v", err)
+	}
+
+	secondEnvelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"writer":"second"}`),
+	)
+	if err != nil {
+		t.Fatalf("create second writer envelope: %v", err)
+	}
+
+	type updateAttempt struct {
+		item vaultdomain.Item
+		err  error
+	}
+
+	attempts := []struct {
+		itemType      vaultdomain.ItemType
+		envelope      vaultdomain.SyntheticItemEnvelope
+		correlationID string
+	}{
+		{
+			itemType:      vaultdomain.ItemTypeAPIKey,
+			envelope:      firstEnvelope,
+			correlationID: "vault-item-concurrent-update-first",
+		},
+		{
+			itemType:      vaultdomain.ItemTypeEnvironmentVariable,
+			envelope:      secondEnvelope,
+			correlationID: "vault-item-concurrent-update-second",
+		},
+	}
+
+	ready := make(chan struct{}, len(attempts))
+	start := make(chan struct{})
+	results := make(chan updateAttempt, len(attempts))
+
+	for _, attempt := range attempts {
+		attempt := attempt
+
+		go func() {
+			ready <- struct{}{}
+			<-start
+
+			item, updateErr := fixture.store.UpdateItem(
+				context.Background(),
+				vaultdomain.UpdateItemStoreInput{
+					OwnerID:         fixture.ownerID,
+					VaultID:         fixture.vaultID,
+					ItemID:          createdItem.ID,
+					Type:            attempt.itemType,
+					Envelope:        attempt.envelope,
+					ExpectedVersion: 1,
+					CorrelationID:   attempt.correlationID,
+				},
+			)
+
+			results <- updateAttempt{
+				item: item,
+				err:  updateErr,
+			}
+		}()
+	}
+
+	for range attempts {
+		<-ready
+	}
+
+	close(start)
+
+	var (
+		successfulItems []vaultdomain.Item
+		conflictCount   int
+	)
+
+	for range attempts {
+		result := <-results
+
+		switch {
+		case result.err == nil:
+			successfulItems = append(successfulItems, result.item)
+
+		case errors.Is(result.err, vaultdomain.ErrItemConflict):
+			conflictCount++
+
+		default:
+			t.Fatalf("concurrent UpdateItem() unexpected error = %v", result.err)
+		}
+	}
+
+	if len(successfulItems) != 1 {
+		t.Fatalf(
+			"successful concurrent updates = %d, want 1",
+			len(successfulItems),
+		)
+	}
+
+	if conflictCount != 1 {
+		t.Fatalf(
+			"concurrent update conflicts = %d, want 1",
+			conflictCount,
+		)
+	}
+
+	successfulItem := successfulItems[0]
+
+	if successfulItem.Version != 2 {
+		t.Fatalf(
+			"successful item version = %d, want 2",
+			successfulItem.Version,
+		)
+	}
+
+	storedItem, err := fixture.store.GetItem(
+		context.Background(),
+		vaultdomain.GetItemStoreInput{
+			OwnerID: fixture.ownerID,
+			VaultID: fixture.vaultID,
+			ItemID:  createdItem.ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("read item after concurrent updates: %v", err)
+	}
+
+	if storedItem.Version != 2 {
+		t.Fatalf("stored item version = %d, want 2", storedItem.Version)
+	}
+
+	if storedItem.Type != successfulItem.Type {
+		t.Fatalf(
+			"stored item type = %q, want winning type %q",
+			storedItem.Type,
+			successfulItem.Type,
+		)
+	}
+
+	if !bytes.Equal(storedItem.Payload, successfulItem.Payload) {
+		t.Fatal("stored payload does not match the successful update")
+	}
+
+	queryContext, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancelQuery()
+
+	var (
+		versionCount int
+		updateCount  int
+	)
+
+	err = testDatabasePool.QueryRow(
+		queryContext,
+		`
+			SELECT
+				(
+					SELECT count(*)
+					FROM item_versions
+					WHERE vault_item_id = $1::uuid
+				),
+				(
+					SELECT count(*)
+					FROM audit_outbox
+					WHERE aggregate_type = 'vault_item'
+					  AND aggregate_id = $1::uuid
+					  AND event_type = 'vault_item.updated'
+				)
+		`,
+		createdItem.ID,
+	).Scan(&versionCount, &updateCount)
+	if err != nil {
+		t.Fatalf("count concurrent update rows: %v", err)
+	}
+
+	if versionCount != 2 {
+		t.Fatalf("item version count = %d, want 2", versionCount)
+	}
+
+	if updateCount != 1 {
+		t.Fatalf("updated audit count = %d, want 1", updateCount)
 	}
 }

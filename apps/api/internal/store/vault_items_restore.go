@@ -38,6 +38,9 @@ func (store *VaultStore) RestoreItem(
 	}()
 
 	restoredItem, err := restoreItemInTransaction(queryContext, transaction, input)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = classifyRestoreItemMiss(queryContext, transaction, input)
+	}
 	if err != nil {
 		return vaultdomain.Item{}, mapRestoreItemError(err)
 	}
@@ -90,6 +93,7 @@ func restoreItemInTransaction(
 				  AND vaults.id = items.vault_id
 				  AND vaults.owner_id = $3::uuid
 				  AND items.deleted_at IS NOT NULL
+				  AND items.version = $4
 				RETURNING
 					items.id::text,
 					items.vault_id::text,
@@ -104,13 +108,48 @@ func restoreItemInTransaction(
 			input.ItemID,
 			input.VaultID,
 			input.OwnerID,
+			input.ExpectedVersion,
 		),
 	)
 }
 
+func classifyRestoreItemMiss(
+	ctx context.Context,
+	transaction pgx.Tx,
+	input vaultdomain.RestoreItemStoreInput,
+) error {
+	var currentVersion int
+
+	err := transaction.QueryRow(
+		ctx,
+		`
+			SELECT items.version
+			FROM vault_items AS items
+			JOIN vaults
+			  ON vaults.id = items.vault_id
+			WHERE items.id = $1::uuid
+			  AND items.vault_id = $2::uuid
+			  AND vaults.owner_id = $3::uuid
+			  AND items.deleted_at IS NOT NULL
+		`,
+		input.ItemID,
+		input.VaultID,
+		input.OwnerID,
+	).Scan(&currentVersion)
+	if err != nil {
+		return err
+	}
+
+	return vaultdomain.ErrItemConflict
+}
+
 func mapRestoreItemError(err error) error {
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, vaultdomain.ErrItemConflict):
+		return vaultdomain.ErrItemConflict
+
+	case errors.Is(err, vaultdomain.ErrItemNotFound),
+		errors.Is(err, pgx.ErrNoRows):
 		return vaultdomain.ErrItemNotFound
 
 	case errors.Is(err, context.Canceled),

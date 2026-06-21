@@ -6,10 +6,11 @@ import (
 )
 
 type RestoreItemInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 func (service *Service) RestoreItem(
@@ -40,6 +41,10 @@ func (service *Service) RestoreItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
+	if err := ValidateExpectedItemVersion(input.ExpectedVersion); err != nil {
+		return Item{}, err
+	}
+
 	restoredItem, err := service.items.RestoreItem(
 		ctx,
 		RestoreItemStoreInput(input),
@@ -50,7 +55,7 @@ func (service *Service) RestoreItem(
 
 	if !validStoredItem(restoredItem, input.VaultID, ItemListStateActive) ||
 		restoredItem.ID != input.ItemID ||
-		restoredItem.Version < 2 {
+		restoredItem.Version != input.ExpectedVersion+1 {
 		return Item{}, fmt.Errorf("restore vault item: %w", ErrItemUnavailable)
 	}
 

@@ -37,24 +37,14 @@ func (store *VaultStore) PermanentDeleteItem(
 		}
 	}()
 
-	var deletedItemID string
-
-	err = transaction.QueryRow(
+	deletedItemID, err := permanentDeleteItemInTransaction(
 		queryContext,
-		`
-		DELETE FROM vault_items AS items
-		USING vaults
-		WHERE items.id = $1::uuid
-		  AND items.vault_id = $2::uuid
-		  AND vaults.id = items.vault_id
-		  AND vaults.owner_id = $3::uuid
-		  AND items.deleted_at IS NOT NULL
-		RETURNING items.id::text
-	`,
-		input.ItemID,
-		input.VaultID,
-		input.OwnerID,
-	).Scan(&deletedItemID)
+		transaction,
+		input,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = classifyPermanentDeleteItemMiss(queryContext, transaction, input)
+	}
 	if err != nil {
 		return mapPermanentDeleteItemError(err)
 	}
@@ -77,12 +67,77 @@ func (store *VaultStore) PermanentDeleteItem(
 	committed = true
 
 	return nil
+}
 
+func permanentDeleteItemInTransaction(
+	ctx context.Context,
+	transaction pgx.Tx,
+	input vaultdomain.PermanentDeleteItemStoreInput,
+) (string, error) {
+	var deletedItemID string
+
+	err := transaction.QueryRow(
+		ctx,
+		`
+			DELETE FROM vault_items AS items
+			USING vaults
+			WHERE items.id = $1::uuid
+			  AND items.vault_id = $2::uuid
+			  AND vaults.id = items.vault_id
+			  AND vaults.owner_id = $3::uuid
+			  AND items.deleted_at IS NOT NULL
+			  AND items.version = $4
+			RETURNING items.id::text
+		`,
+		input.ItemID,
+		input.VaultID,
+		input.OwnerID,
+		input.ExpectedVersion,
+	).Scan(&deletedItemID)
+	if err != nil {
+		return "", err
+	}
+
+	return deletedItemID, nil
+}
+
+func classifyPermanentDeleteItemMiss(
+	ctx context.Context,
+	transaction pgx.Tx,
+	input vaultdomain.PermanentDeleteItemStoreInput,
+) error {
+	var currentVersion int
+
+	err := transaction.QueryRow(
+		ctx,
+		`
+			SELECT items.version
+			FROM vault_items AS items
+			JOIN vaults
+			  ON vaults.id = items.vault_id
+			WHERE items.id = $1::uuid
+			  AND items.vault_id = $2::uuid
+			  AND vaults.owner_id = $3::uuid
+			  AND items.deleted_at IS NOT NULL
+		`,
+		input.ItemID,
+		input.VaultID,
+		input.OwnerID,
+	).Scan(&currentVersion)
+	if err != nil {
+		return err
+	}
+
+	return vaultdomain.ErrItemConflict
 }
 
 func mapPermanentDeleteItemError(err error) error {
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, vaultdomain.ErrItemConflict):
+		return vaultdomain.ErrItemConflict
+
+	case errors.Is(err, vaultdomain.ErrItemNotFound),
+		errors.Is(err, pgx.ErrNoRows):
 		return vaultdomain.ErrItemNotFound
 
 	case errors.Is(err, context.Canceled),
@@ -92,5 +147,4 @@ func mapPermanentDeleteItemError(err error) error {
 	default:
 		return fmt.Errorf("permanently delete vault item: %w", ErrDatabase)
 	}
-
 }

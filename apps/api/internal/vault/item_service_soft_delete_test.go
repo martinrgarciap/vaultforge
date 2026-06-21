@@ -71,6 +71,13 @@ func TestServiceSoftDeleteItemDeletesOwnedItem(t *testing.T) {
 		)
 	}
 
+	if store.lastSoftDeleteInput.ExpectedVersion != 1 {
+		t.Fatalf(
+			"expected version = %d, want 1",
+			store.lastSoftDeleteInput.ExpectedVersion,
+		)
+	}
+
 	if store.lastSoftDeleteInput.CorrelationID != itemServiceSoftDeleteRequest {
 		t.Fatalf(
 			"correlation ID = %q, want %q",
@@ -107,40 +114,55 @@ func TestServiceSoftDeleteItemRejectsInvalidInputs(t *testing.T) {
 		{
 			name: "invalid owner",
 			input: SoftDeleteItemInput{
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        itemServiceTestItemID,
-				CorrelationID: itemServiceSoftDeleteRequest,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 1,
+				CorrelationID:   itemServiceSoftDeleteRequest,
 			},
 			wantErr: ErrOwnerInvalid,
 		},
 		{
 			name: "invalid vault",
 			input: SoftDeleteItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       " ",
-				ItemID:        itemServiceTestItemID,
-				CorrelationID: itemServiceSoftDeleteRequest,
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         " ",
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 1,
+				CorrelationID:   itemServiceSoftDeleteRequest,
 			},
 			wantErr: ErrVaultNotFound,
 		},
 		{
 			name: "invalid item",
 			input: SoftDeleteItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        "",
-				CorrelationID: itemServiceSoftDeleteRequest,
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          "",
+				ExpectedVersion: 1,
+				CorrelationID:   itemServiceSoftDeleteRequest,
 			},
 			wantErr: ErrItemNotFound,
 		},
 		{
 			name: "invalid correlation ID",
 			input: SoftDeleteItemInput{
-				OwnerID: itemServiceTestOwnerID,
-				VaultID: itemServiceTestVaultID,
-				ItemID:  itemServiceTestItemID,
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 1,
 			},
 			wantErr: ErrCorrelationIDInvalid,
+		},
+		{
+			name: "invalid expected version",
+			input: SoftDeleteItemInput{
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				ExpectedVersion: 0,
+				CorrelationID:   itemServiceSoftDeleteRequest,
+			},
+			wantErr: ErrItemVersionInvalid,
 		},
 	}
 
@@ -192,6 +214,11 @@ func TestServiceSoftDeleteItemMapsStoreErrorsSafely(t *testing.T) {
 			name:     "internal failure",
 			storeErr: errors.New(internalMarker),
 			wantErr:  ErrItemUnavailable,
+		},
+		{
+			name:     "version conflict",
+			storeErr: ErrItemConflict,
+			wantErr:  ErrItemConflict,
 		},
 	}
 
@@ -307,6 +334,19 @@ func TestServiceSoftDeleteItemRejectsMalformedStoredItems(t *testing.T) {
 				DeletedAt: validResult.DeletedAt,
 			},
 		},
+		{
+			name: "wrong returned version",
+			item: Item{
+				ID:        validResult.ID,
+				VaultID:   validResult.VaultID,
+				Type:      validResult.Type,
+				Payload:   validResult.Payload,
+				Version:   2,
+				CreatedAt: validResult.CreatedAt,
+				UpdatedAt: validResult.UpdatedAt,
+				DeletedAt: validResult.DeletedAt,
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -380,9 +420,10 @@ func TestServiceSoftDeleteItemPreservesCanceledContext(t *testing.T) {
 
 func validItemServiceSoftDeleteInput() SoftDeleteItemInput {
 	return SoftDeleteItemInput{
-		OwnerID:       itemServiceTestOwnerID,
-		VaultID:       itemServiceTestVaultID,
-		ItemID:        itemServiceTestItemID,
-		CorrelationID: itemServiceSoftDeleteRequest,
+		OwnerID:         itemServiceTestOwnerID,
+		VaultID:         itemServiceTestVaultID,
+		ItemID:          itemServiceTestItemID,
+		ExpectedVersion: 1,
+		CorrelationID:   itemServiceSoftDeleteRequest,
 	}
 }

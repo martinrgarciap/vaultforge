@@ -6,10 +6,11 @@ import (
 )
 
 type SoftDeleteItemInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 func (service *Service) SoftDeleteItem(
@@ -40,6 +41,10 @@ func (service *Service) SoftDeleteItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
+	if err := ValidateExpectedItemVersion(input.ExpectedVersion); err != nil {
+		return Item{}, err
+	}
+
 	deletedItem, err := service.items.SoftDeleteItem(
 		ctx,
 		SoftDeleteItemStoreInput(input),
@@ -49,7 +54,8 @@ func (service *Service) SoftDeleteItem(
 	}
 
 	if !validStoredItem(deletedItem, input.VaultID, ItemListStateDeleted) ||
-		deletedItem.ID != input.ItemID {
+		deletedItem.ID != input.ItemID ||
+		deletedItem.Version != input.ExpectedVersion {
 		return Item{}, fmt.Errorf("soft delete vault item: %w", ErrItemUnavailable)
 	}
 

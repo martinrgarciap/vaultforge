@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	itemServiceTestOwnerID = "00000000-0000-0000-0000-000000001001"
-	itemServiceTestVaultID = "00000000-0000-0000-0000-000000001002"
-	itemServiceTestItemID  = "00000000-0000-0000-0000-000000001003"
-	itemServiceTestRequest = "item-service-create-request"
+	itemServiceTestOwnerID        = "00000000-0000-0000-0000-000000001001"
+	itemServiceTestVaultID        = "00000000-0000-0000-0000-000000001002"
+	itemServiceTestItemID         = "00000000-0000-0000-0000-000000001003"
+	itemServiceTestRequest        = "item-service-create-request"
+	itemServiceTestIdempotencyKey = "item-service-create-idempotency-key"
 )
 
 func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
@@ -45,7 +46,8 @@ func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 				"token": "synthetic-token",
 				"label": "Development"
 			}`),
-			CorrelationID: itemServiceTestRequest,
+			IdempotencyKey: itemServiceTestIdempotencyKey,
+			CorrelationID:  itemServiceTestRequest,
 		},
 	)
 	if err != nil {
@@ -98,6 +100,19 @@ func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 		t.Fatal("store input did not contain the synthetic nonce")
 	}
 
+	wantIdempotency, err := NewItemCreateIdempotency(
+		itemServiceTestIdempotencyKey,
+		ItemTypeAPIKey,
+		store.lastCreateInput.Envelope,
+	)
+	if err != nil {
+		t.Fatalf("create expected idempotency value: %v", err)
+	}
+
+	if store.lastCreateInput.Idempotency != wantIdempotency {
+		t.Fatal("store input did not contain the expected idempotency hashes")
+	}
+
 	if createdItem.ID != itemServiceTestItemID {
 		t.Fatalf("item ID = %q, want %q", createdItem.ID, itemServiceTestItemID)
 	}
@@ -118,68 +133,86 @@ func TestServiceCreateItemRejectsInvalidInputs(t *testing.T) {
 		{
 			name: "invalid owner",
 			input: CreateItemInput{
-				OwnerID:       "",
-				VaultID:       itemServiceTestVaultID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceTestRequest,
+				OwnerID:        "",
+				VaultID:        itemServiceTestVaultID,
+				Type:           ItemTypeSecureNote,
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  itemServiceTestRequest,
 			},
 			wantErr: ErrOwnerInvalid,
 		},
 		{
 			name: "invalid vault",
 			input: CreateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       " ",
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceTestRequest,
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        " ",
+				Type:           ItemTypeSecureNote,
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  itemServiceTestRequest,
 			},
 			wantErr: ErrVaultNotFound,
 		},
 		{
 			name: "invalid item type",
 			input: CreateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				Type:          "unsupported",
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceTestRequest,
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        itemServiceTestVaultID,
+				Type:           "unsupported",
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  itemServiceTestRequest,
 			},
 			wantErr: ErrItemTypeInvalid,
 		},
 		{
 			name: "invalid correlation ID",
 			input: CreateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: "",
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        itemServiceTestVaultID,
+				Type:           ItemTypeSecureNote,
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  "",
 			},
 			wantErr: ErrCorrelationIDInvalid,
 		},
 		{
 			name: "empty payload",
 			input: CreateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				Type:          ItemTypeSecureNote,
-				Payload:       nil,
-				CorrelationID: itemServiceTestRequest,
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        itemServiceTestVaultID,
+				Type:           ItemTypeSecureNote,
+				Payload:        nil,
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  itemServiceTestRequest,
 			},
 			wantErr: ErrItemPayloadEmpty,
 		},
 		{
 			name: "payload is not an object",
 			input: CreateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`["value"]`),
-				CorrelationID: itemServiceTestRequest,
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        itemServiceTestVaultID,
+				Type:           ItemTypeSecureNote,
+				Payload:        json.RawMessage(`["value"]`),
+				IdempotencyKey: itemServiceTestIdempotencyKey,
+				CorrelationID:  itemServiceTestRequest,
 			},
 			wantErr: ErrItemPayloadNotObject,
+		},
+		{
+			name: "invalid idempotency key",
+			input: CreateItemInput{
+				OwnerID:        itemServiceTestOwnerID,
+				VaultID:        itemServiceTestVaultID,
+				Type:           ItemTypeSecureNote,
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: " ",
+				CorrelationID:  itemServiceTestRequest,
+			},
+			wantErr: ErrItemIdempotencyKeyInvalid,
 		},
 	}
 
@@ -227,6 +260,11 @@ func TestServiceCreateItemMapsStoreErrorsSafely(t *testing.T) {
 			name:     "internal failure",
 			storeErr: errors.New(internalMarker),
 			wantErr:  ErrItemUnavailable,
+		},
+		{
+			name:     "idempotency conflict",
+			storeErr: ErrItemIdempotencyConflict,
+			wantErr:  ErrItemIdempotencyConflict,
 		},
 	}
 
@@ -365,10 +403,11 @@ func TestServiceCreateItemPreservesCanceledContext(t *testing.T) {
 
 func validItemServiceCreateInput() CreateItemInput {
 	return CreateItemInput{
-		OwnerID:       itemServiceTestOwnerID,
-		VaultID:       itemServiceTestVaultID,
-		Type:          ItemTypeSecureNote,
-		Payload:       json.RawMessage(`{"value":"synthetic"}`),
-		CorrelationID: itemServiceTestRequest,
+		OwnerID:        itemServiceTestOwnerID,
+		VaultID:        itemServiceTestVaultID,
+		Type:           ItemTypeSecureNote,
+		Payload:        json.RawMessage(`{"value":"synthetic"}`),
+		IdempotencyKey: itemServiceTestIdempotencyKey,
+		CorrelationID:  itemServiceTestRequest,
 	}
 }

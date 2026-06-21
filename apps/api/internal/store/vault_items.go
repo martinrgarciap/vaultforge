@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,7 +41,44 @@ func (store *VaultStore) CreateItem(
 		}
 	}()
 
-	createdItem, err := createItemInTransaction(queryContext, transaction, input)
+	claim, err := claimItemCreateIdempotency(queryContext, transaction, input)
+	if err != nil {
+		return vaultdomain.Item{}, mapCreateItemError(err)
+	}
+
+	if !bytes.Equal(claim.RequestHash, input.Idempotency.RequestHash[:]) {
+		return vaultdomain.Item{}, vaultdomain.ErrItemIdempotencyConflict
+	}
+
+	if !claim.Claimed {
+		replayedItem, err := loadItemCreateReplayInTransaction(
+			queryContext,
+			transaction,
+			input,
+			claim.ResourceID,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = errItemCreateReplayMissing
+		}
+		if err != nil {
+			return vaultdomain.Item{}, mapCreateItemError(err)
+		}
+
+		if err := transaction.Commit(queryContext); err != nil {
+			return vaultdomain.Item{}, mapCreateItemError(err)
+		}
+
+		committed = true
+
+		return replayedItem, nil
+	}
+
+	createdItem, err := createItemInTransaction(
+		queryContext,
+		transaction,
+		claim.ResourceID,
+		input,
+	)
 	if err != nil {
 		return vaultdomain.Item{}, mapCreateItemError(err)
 	}
@@ -76,6 +114,7 @@ func (store *VaultStore) CreateItem(
 func createItemInTransaction(
 	ctx context.Context,
 	transaction pgx.Tx,
+	itemID string,
 	input vaultdomain.CreateItemStoreInput,
 ) (vaultdomain.Item, error) {
 	return scanSyntheticItemRow(
@@ -83,19 +122,21 @@ func createItemInTransaction(
 			ctx,
 			`
 				INSERT INTO vault_items (
+					id,
 					vault_id,
 					item_type,
 					encrypted_payload,
 					nonce
 				)
 				SELECT
+					$1::uuid,
 					vaults.id,
-					$3,
-					$4::bytea,
-					$5::bytea
+					$4,
+					$5::bytea,
+					$6::bytea
 				FROM vaults
-				WHERE vaults.id = $1::uuid
-				  AND vaults.owner_id = $2::uuid
+				WHERE vaults.id = $2::uuid
+				  AND vaults.owner_id = $3::uuid
 				RETURNING
 					id::text,
 					vault_id::text,
@@ -107,6 +148,7 @@ func createItemInTransaction(
 					updated_at,
 					deleted_at
 			`,
+			itemID,
 			input.VaultID,
 			input.OwnerID,
 			string(input.Type),
@@ -245,6 +287,9 @@ func scanSyntheticItemRow(row itemRowScanner) (vaultdomain.Item, error) {
 
 func mapCreateItemError(err error) error {
 	switch {
+	case errors.Is(err, vaultdomain.ErrItemIdempotencyConflict):
+		return vaultdomain.ErrItemIdempotencyConflict
+
 	case errors.Is(err, pgx.ErrNoRows):
 		return vaultdomain.ErrVaultNotFound
 

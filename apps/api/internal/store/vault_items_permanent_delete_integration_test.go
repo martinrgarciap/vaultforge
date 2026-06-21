@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -17,10 +18,11 @@ func TestVaultStorePermanentDeleteItemRemovesDeletedItemVersionsAndPreservesAudi
 	if _, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	); err != nil {
 		t.Fatalf("SoftDeleteItem() error = %v", err)
@@ -29,10 +31,11 @@ func TestVaultStorePermanentDeleteItemRemovesDeletedItemVersionsAndPreservesAudi
 	err := fixture.store.PermanentDeleteItem(
 		context.Background(),
 		vaultdomain.PermanentDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemPermanentDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemPermanentDeleteCorrelationID,
 		},
 	)
 	if err != nil {
@@ -151,10 +154,11 @@ func TestVaultStorePermanentDeleteItemRejectsActiveItem(t *testing.T) {
 	err := fixture.store.PermanentDeleteItem(
 		context.Background(),
 		vaultdomain.PermanentDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemPermanentDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemPermanentDeleteCorrelationID,
 		},
 	)
 
@@ -187,10 +191,11 @@ func TestVaultStorePermanentDeleteItemUsesSafeNotFoundForInaccessibleItems(t *te
 	if _, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	); err != nil {
 		t.Fatalf("SoftDeleteItem() error = %v", err)
@@ -203,28 +208,31 @@ func TestVaultStorePermanentDeleteItemUsesSafeNotFoundForInaccessibleItems(t *te
 		{
 			name: "other owner",
 			input: vaultdomain.PermanentDeleteItemStoreInput{
-				OwnerID:       fixture.otherOwnerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemPermanentDeleteCorrelationID,
+				OwnerID:         fixture.otherOwnerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemPermanentDeleteCorrelationID,
 			},
 		},
 		{
 			name: "wrong parent vault",
 			input: vaultdomain.PermanentDeleteItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.otherVaultID,
-				ItemID:        createdItem.ID,
-				CorrelationID: vaultItemPermanentDeleteCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.otherVaultID,
+				ItemID:          createdItem.ID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemPermanentDeleteCorrelationID,
 			},
 		},
 		{
 			name: "unknown item",
 			input: vaultdomain.PermanentDeleteItemStoreInput{
-				OwnerID:       fixture.ownerID,
-				VaultID:       fixture.vaultID,
-				ItemID:        vaultItemUnknownID,
-				CorrelationID: vaultItemPermanentDeleteCorrelationID,
+				OwnerID:         fixture.ownerID,
+				VaultID:         fixture.vaultID,
+				ItemID:          vaultItemUnknownID,
+				ExpectedVersion: 1,
+				CorrelationID:   vaultItemPermanentDeleteCorrelationID,
 			},
 		},
 	}
@@ -252,10 +260,11 @@ func TestVaultStorePermanentDeleteItemRollsBackWhenAuditInsertFails(t *testing.T
 	if _, err := fixture.store.SoftDeleteItem(
 		context.Background(),
 		vaultdomain.SoftDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: vaultItemDeleteCorrelationID,
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   vaultItemDeleteCorrelationID,
 		},
 	); err != nil {
 		t.Fatalf("SoftDeleteItem() error = %v", err)
@@ -264,10 +273,11 @@ func TestVaultStorePermanentDeleteItemRollsBackWhenAuditInsertFails(t *testing.T
 	err := fixture.store.PermanentDeleteItem(
 		context.Background(),
 		vaultdomain.PermanentDeleteItemStoreInput{
-			OwnerID:       fixture.ownerID,
-			VaultID:       fixture.vaultID,
-			ItemID:        createdItem.ID,
-			CorrelationID: "",
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "",
 		},
 	)
 
@@ -369,4 +379,149 @@ func TestVaultStorePermanentDeleteItemMapsMissingDatabaseSafely(t *testing.T) {
 		t.Fatalf("PermanentDeleteItem() error = %v, want %v", err, ErrDatabase)
 	}
 
+}
+
+func TestVaultStorePermanentDeleteItemReturnsConflictForStaleVersion(t *testing.T) {
+	fixture := newVaultItemIntegrationFixture(t)
+	createdItem := createVaultItemForGetTest(t, fixture)
+
+	envelope, err := vaultdomain.NewSyntheticItemEnvelope(
+		json.RawMessage(`{"value":"version-two"}`),
+	)
+	if err != nil {
+		t.Fatalf("create version-two envelope: %v", err)
+	}
+
+	updatedItem, err := fixture.store.UpdateItem(
+		context.Background(),
+		vaultdomain.UpdateItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			Type:            vaultdomain.ItemTypeAPIKey,
+			Envelope:        envelope,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-update-before-permanent-delete",
+		},
+	)
+	if err != nil {
+		t.Fatalf("UpdateItem() error = %v", err)
+	}
+
+	if updatedItem.Version != 2 {
+		t.Fatalf("updated version = %d, want 2", updatedItem.Version)
+	}
+
+	deletedItem, err := fixture.store.SoftDeleteItem(
+		context.Background(),
+		vaultdomain.SoftDeleteItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: updatedItem.Version,
+			CorrelationID:   "vault-item-delete-before-permanent-delete",
+		},
+	)
+	if err != nil {
+		t.Fatalf("SoftDeleteItem() error = %v", err)
+	}
+
+	if deletedItem.Version != 2 {
+		t.Fatalf("deleted version = %d, want 2", deletedItem.Version)
+	}
+
+	err = fixture.store.PermanentDeleteItem(
+		context.Background(),
+		vaultdomain.PermanentDeleteItemStoreInput{
+			OwnerID:         fixture.ownerID,
+			VaultID:         fixture.vaultID,
+			ItemID:          createdItem.ID,
+			ExpectedVersion: 1,
+			CorrelationID:   "vault-item-stale-permanent-delete",
+		},
+	)
+	if !errors.Is(err, vaultdomain.ErrItemConflict) {
+		t.Fatalf(
+			"stale PermanentDeleteItem() error = %v, want %v",
+			err,
+			vaultdomain.ErrItemConflict,
+		)
+	}
+
+	storedDeletedItem, err := fixture.store.GetItem(
+		context.Background(),
+		vaultdomain.GetItemStoreInput{
+			OwnerID: fixture.ownerID,
+			VaultID: fixture.vaultID,
+			ItemID:  createdItem.ID,
+			State:   vaultdomain.ItemListStateDeleted,
+		},
+	)
+	if err != nil {
+		t.Fatalf("read item after stale permanent delete: %v", err)
+	}
+
+	if !storedDeletedItem.Deleted() {
+		t.Fatal("stale permanent delete changed the deleted state")
+	}
+
+	if storedDeletedItem.Version != 2 {
+		t.Fatalf("stored deleted version = %d, want 2", storedDeletedItem.Version)
+	}
+
+	queryContext, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancelQuery()
+
+	var (
+		itemCount            int
+		versionCount         int
+		permanentDeleteCount int
+	)
+
+	err = testDatabasePool.QueryRow(
+		queryContext,
+		`
+			SELECT
+				(
+					SELECT count(*)
+					FROM vault_items
+					WHERE id = $1::uuid
+				),
+				(
+					SELECT count(*)
+					FROM item_versions
+					WHERE vault_item_id = $1::uuid
+				),
+				(
+					SELECT count(*)
+					FROM audit_outbox
+					WHERE aggregate_type = 'vault_item'
+					  AND aggregate_id = $1::uuid
+					  AND event_type = 'vault_item.permanently_deleted'
+				)
+		`,
+		createdItem.ID,
+	).Scan(
+		&itemCount,
+		&versionCount,
+		&permanentDeleteCount,
+	)
+	if err != nil {
+		t.Fatalf("count stale permanent-delete rows: %v", err)
+	}
+
+	if itemCount != 1 {
+		t.Fatalf("vault item count = %d, want 1", itemCount)
+	}
+
+	if versionCount != 2 {
+		t.Fatalf("item version count = %d, want 2", versionCount)
+	}
+
+	if permanentDeleteCount != 0 {
+		t.Fatalf(
+			"permanent-delete audit count = %d, want 0",
+			permanentDeleteCount,
+		)
+	}
 }

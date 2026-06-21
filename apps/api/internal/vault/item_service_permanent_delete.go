@@ -6,10 +6,11 @@ import (
 )
 
 type PermanentDeleteItemInput struct {
-	OwnerID       string
-	VaultID       string
-	ItemID        string
-	CorrelationID string
+	OwnerID         string
+	VaultID         string
+	ItemID          string
+	ExpectedVersion int
+	CorrelationID   string
 }
 
 func (service *Service) PermanentDeleteItem(
@@ -38,6 +39,10 @@ func (service *Service) PermanentDeleteItem(
 
 	if !validIdentifier(input.CorrelationID) {
 		return ErrCorrelationIDInvalid
+	}
+
+	if err := ValidateExpectedItemVersion(input.ExpectedVersion); err != nil {
+		return err
 	}
 
 	err := service.items.PermanentDeleteItem(

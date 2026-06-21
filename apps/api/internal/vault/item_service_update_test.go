@@ -41,7 +41,8 @@ func TestServiceUpdateItemNormalizesAndUpdatesItem(t *testing.T) {
 				"token": "synthetic-token",
 				"label": "Updated"
 			}`),
-			CorrelationID: itemServiceUpdateRequest,
+			ExpectedVersion: 1,
+			CorrelationID:   itemServiceUpdateRequest,
 		},
 	)
 	if err != nil {
@@ -213,6 +214,19 @@ func TestServiceUpdateItemRejectsInvalidInputs(t *testing.T) {
 			},
 			wantErr: ErrItemPayloadNotObject,
 		},
+		{
+			name: "invalid expected version",
+			input: UpdateItemInput{
+				OwnerID:         itemServiceTestOwnerID,
+				VaultID:         itemServiceTestVaultID,
+				ItemID:          itemServiceTestItemID,
+				Type:            ItemTypeSecureNote,
+				Payload:         json.RawMessage(`{}`),
+				ExpectedVersion: 0,
+				CorrelationID:   itemServiceUpdateRequest,
+			},
+			wantErr: ErrItemVersionInvalid,
+		},
 	}
 
 	for _, test := range tests {
@@ -259,6 +273,11 @@ func TestServiceUpdateItemMapsStoreErrorsSafely(t *testing.T) {
 			name:     "internal failure",
 			storeErr: errors.New(internalMarker),
 			wantErr:  ErrItemUnavailable,
+		},
+		{
+			name:     "version conflict",
+			storeErr: ErrItemConflict,
+			wantErr:  ErrItemConflict,
 		},
 	}
 
@@ -436,11 +455,12 @@ func TestServiceUpdateItemPreservesCanceledContext(t *testing.T) {
 
 func validItemServiceUpdateInput() UpdateItemInput {
 	return UpdateItemInput{
-		OwnerID:       itemServiceTestOwnerID,
-		VaultID:       itemServiceTestVaultID,
-		ItemID:        itemServiceTestItemID,
-		Type:          ItemTypeAPIKey,
-		Payload:       json.RawMessage(`{"label":"Updated","token":"synthetic-token"}`),
-		CorrelationID: itemServiceUpdateRequest,
+		OwnerID:         itemServiceTestOwnerID,
+		VaultID:         itemServiceTestVaultID,
+		ItemID:          itemServiceTestItemID,
+		Type:            ItemTypeAPIKey,
+		Payload:         json.RawMessage(`{"label":"Updated","token":"synthetic-token"}`),
+		ExpectedVersion: 1,
+		CorrelationID:   itemServiceUpdateRequest,
 	}
 }
