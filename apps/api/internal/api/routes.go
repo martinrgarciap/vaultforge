@@ -47,6 +47,12 @@ func (app *Application) Routes() http.Handler {
 			router.Delete("/sessions", app.sessionHandler.LogoutAll)
 			router.Delete("/sessions/current", app.sessionHandler.LogoutCurrent)
 			router.Delete("/sessions/{sessionID}", app.sessionHandler.Revoke)
+
+			router.Post("/vaults", app.vaultHandler.Create)
+			router.Get("/vaults", app.vaultHandler.List)
+			router.Get("/vaults/{vaultID}", app.vaultHandler.Get)
+			router.Patch("/vaults/{vaultID}", app.vaultHandler.Rename)
+			router.Delete("/vaults/{vaultID}", app.vaultHandler.Delete)
 		})
 	})
 

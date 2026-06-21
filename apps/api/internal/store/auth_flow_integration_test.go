@@ -22,6 +22,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -957,6 +958,9 @@ func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
 		session.DefaultTokenLifetimes(),
 	)
 
+	vaultStore := store.NewVaultStore(databasePool)
+	vaultService := vault.NewService(vaultStore)
+
 	app := api.NewApplication(
 		api.Config{
 			Env:         "test",
@@ -967,6 +971,7 @@ func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
 		databasePool,
 		authService,
 		sessionService,
+		vaultService,
 	)
 
 	return app, databasePool, observedLogs
@@ -1034,15 +1039,18 @@ func resetAuthenticationIntegrationTables(
 	_, err := databasePool.Exec(
 		queryContext,
 		`
-			TRUNCATE TABLE
-				item_versions,
-				vault_items,
-				vaults,
-				sessions,
-				users
-			CASCADE
-		`,
+		TRUNCATE TABLE
+			audit_outbox,
+			idempotency_records,
+			item_versions,
+			vault_items,
+			vaults,
+			sessions,
+			users
+		CASCADE
+	`,
 	)
+
 	if err != nil {
 		t.Fatalf(
 			"reset authentication integration tables: %v",

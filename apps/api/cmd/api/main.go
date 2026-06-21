@@ -10,6 +10,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
 func main() {
@@ -89,12 +90,16 @@ func main() {
 		cfg.Tokens.Lifetimes(),
 	)
 
+	vaultStore := store.NewVaultStore(databasePool)
+	vaultService := vault.NewService(vaultStore)
+
 	app := api.NewApplication(
 		cfg,
 		logger,
 		databasePool,
 		authService,
 		sessionService,
+		vaultService,
 	)
 
 	if err := app.Run(); err != nil {

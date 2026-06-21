@@ -4,6 +4,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/authhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessionhandler"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/vaulthandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 
 	"go.uber.org/zap"
@@ -16,6 +17,7 @@ type Application struct {
 	authHandler    *authhandler.Handler
 	sessionService *session.Service
 	sessionHandler *sessionhandler.Handler
+	vaultHandler   *vaulthandler.Handler
 }
 
 func NewApplication(
@@ -24,6 +26,7 @@ func NewApplication(
 	databasePinger health.DatabasePinger,
 	authService authhandler.RegistrationService,
 	sessionService *session.Service,
+	vaultService vaulthandler.VaultService,
 ) *Application {
 	return &Application{
 		config: cfg,
@@ -40,6 +43,10 @@ func NewApplication(
 		sessionService: sessionService,
 		sessionHandler: sessionhandler.New(
 			sessionService,
+			logger,
+		),
+		vaultHandler: vaulthandler.New(
+			vaultService,
 			logger,
 		),
 	}

@@ -6,9 +6,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestNewApplicationStoresSessionService(
-	t *testing.T,
-) {
+func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 	sessionService := newTestSessionService()
 
 	app := NewApplication(
@@ -21,17 +19,18 @@ func TestNewApplicationStoresSessionService(
 		&testDatabasePinger{},
 		&routeTestAuthService{},
 		sessionService,
+		nil,
 	)
 
 	if app.sessionService != sessionService {
-		t.Fatal(
-			"application did not retain the supplied session service",
-		)
+		t.Fatal("application did not retain the supplied session service")
 	}
 
 	if app.sessionHandler == nil {
-		t.Fatal(
-			"application did not create the session handler",
-		)
+		t.Fatal("application did not create the session handler")
+	}
+
+	if app.vaultHandler == nil {
+		t.Fatal("application did not create the vault handler")
 	}
 }

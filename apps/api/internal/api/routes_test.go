@@ -56,6 +56,7 @@ func newTestApplicationWithDatabaseError(
 		},
 		&routeTestAuthService{},
 		newTestSessionService(),
+		nil,
 	)
 }
 

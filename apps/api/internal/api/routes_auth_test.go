@@ -569,6 +569,7 @@ func newApplicationWithAuthService(
 		newTestLoginSessionService(
 			authService,
 		),
+		nil,
 	)
 }
 
