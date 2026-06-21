@@ -373,6 +373,8 @@ func resetIntegrationTestTables(t *testing.T) {
 		queryContext,
 		`
 			TRUNCATE TABLE
+				audit_outbox,
+				idempotency_records,
 				item_versions,
 				vault_items,
 				vaults,
@@ -382,9 +384,8 @@ func resetIntegrationTestTables(t *testing.T) {
 		`,
 	)
 	if err != nil {
-		t.Fatalf(
-			"reset integration test tables: %v",
-			err,
+		t.Fatal(
+			"reset integration test tables",
 		)
 	}
 }
