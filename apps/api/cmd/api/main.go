@@ -100,6 +100,7 @@ func main() {
 		authService,
 		sessionService,
 		vaultService,
+		vaultService,
 	)
 
 	if err := app.Run(); err != nil {

@@ -92,6 +92,24 @@ Signing seeds and private keys must never be:
 
 Production key storage, rotation, and multi-key verification are not implemented yet.
 
+## Current synthetic vault API
+
+The current backend implements owner-scoped vault and item workflows using synthetic dummy payloads.
+
+The current item API:
+
+- Accepts only documented item types.
+- Derives the owner from the authenticated bearer principal.
+- Prevents cross-user access through owner-scoped service and store queries.
+- Requires an idempotency key when creating an item.
+- Requires a strong quoted `If-Match` version for updates and lifecycle mutations.
+- Rejects stale versions instead of silently overwriting newer data.
+- Supports soft deletion, restoration, and permanent deletion.
+- Writes allow-listed sanitized audit metadata through the same database transaction as each mutation.
+- Includes regression tests that reject payload, key, hash, name, and secret leakage into outbox metadata.
+
+These payloads are not encrypted yet and are visible to the Go API and PostgreSQL. Only synthetic values are permitted.
+
 ## Vault encryption
 
 Future vault encryption will occur in the browser through a Rust WebAssembly module.
@@ -136,8 +154,13 @@ The current backend includes:
 - Stateful session validation on protected routes
 - Opaque refresh-token rotation
 - Replay detection and token-family revocation
-- Ownership checks for session revocation
+- Ownership checks for session, vault, and item operations
 - Strict JSON decoding and body-size limits
+- Idempotency-key protection for item creation
+- Strong `ETag` and `If-Match` optimistic concurrency
+- Soft-delete, restore, and permanent-delete state enforcement
+- Sanitized transactional outbox writes
+- Automated checks preventing sensitive values from entering outbox payloads
 - Safe structured request logging
 - Panic recovery with generic public errors
 - PostgreSQL integration tests
@@ -148,6 +171,7 @@ The current backend includes:
 
 - VaultForge has not received an independent security audit.
 - Client-side vault encryption is not yet implemented.
+- Current synthetic item payloads are visible to the Go API and PostgreSQL.
 - Rate limiting and login lockouts are not yet implemented.
 - Secure refresh-token cookies and CSRF protection are not yet implemented.
 - Production signing-key storage and rotation are not yet implemented.

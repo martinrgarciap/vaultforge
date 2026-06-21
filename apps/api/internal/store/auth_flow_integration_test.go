@@ -972,6 +972,7 @@ func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
 		authService,
 		sessionService,
 		vaultService,
+		nil,
 	)
 
 	return app, databasePool, observedLogs

@@ -20,6 +20,7 @@ func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 		&routeTestAuthService{},
 		sessionService,
 		nil,
+		nil,
 	)
 
 	if app.sessionService != sessionService {
@@ -32,5 +33,9 @@ func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 
 	if app.vaultHandler == nil {
 		t.Fatal("application did not create the vault handler")
+	}
+
+	if app.itemHandler == nil {
+		t.Fatal("application did not create the item handler")
 	}
 }

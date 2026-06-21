@@ -21,6 +21,10 @@ Go REST API
   ├── Opaque refresh-token rotation
   ├── Stateful bearer authorization
   ├── Session listing and revocation
+  ├── Owner-scoped vault workflows
+  ├── Vault-item lifecycle and pagination
+  ├── Optimistic concurrency and idempotency
+  ├── Sanitized transactional outbox writes
   └── PostgreSQL persistence
 ```
 
@@ -38,7 +42,7 @@ graph LR
     A --> O["OpenTelemetry"]
 ```
 
-Redis, RabbitMQ, OpenTelemetry, Rust services, WebAssembly cryptography, the React client, and vault CRUD remain planned roadmap work.
+Redis, RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, and the React client remain planned roadmap work. Vault and synthetic item workflows are implemented, but client-side vault encryption is not.
 
 ### Account authentication
 
@@ -66,26 +70,31 @@ A Rust WebAssembly module will derive and manage vault encryption keys in the br
 
 The current backend supports:
 
-- Account registration
-- Account login
+- Account registration and login
 - Argon2id password hashing with random salts
 - Ed25519 access-token issuance and verification
 - Opaque refresh tokens stored only as SHA-256 digests
 - Atomic refresh-token rotation
 - Refresh-token replay detection and family revocation
 - Stateful bearer authentication backed by PostgreSQL
-- Active-session listing
-- Targeted owned-session revocation
-- Current-session logout
-- Logout-all
-- Generic credential and token failure responses
+- Active-session listing and revocation
+- Owner-scoped vault creation, listing, retrieval, renaming, and deletion
+- Vault-item creation, listing, retrieval, update, soft deletion, restoration, and permanent deletion
+- Item types for login records, API keys, environment variables, database connections, and secure notes
+- Keyset pagination ordered by update time and item ID
+- Idempotency-key protection for item creation
+- Strong `ETag` and `If-Match` optimistic-concurrency protection
+- Sanitized transactional outbox events written with vault and item mutations
+- Generic credential, token, ownership, and not-found responses
 - PostgreSQL persistence and migrations
 - Database-backed readiness checks
 - Strict JSON request handling and body limits
 - Safe structured logging
-- Real PostgreSQL and HTTP integration tests
+- Unit, route, service, store, and real PostgreSQL integration tests
 
-Frontend, Redis, RabbitMQ, Rust services, WebAssembly cryptography, and vault CRUD are intentionally deferred until their roadmap phases.
+Item payloads currently contain synthetic dummy JSON only. They are visible to the Go API and PostgreSQL until the future browser-side encryption phase replaces them with encrypted envelopes.
+
+Frontend, Redis, RabbitMQ publishing, Rust services, WebAssembly cryptography, and production deployment work remain deferred to later roadmap phases.
 
 ## Technology
 
@@ -188,15 +197,31 @@ GET    /v1/sessions
 DELETE /v1/sessions
 DELETE /v1/sessions/current
 DELETE /v1/sessions/{sessionID}
+
+POST   /v1/vaults
+GET    /v1/vaults
+GET    /v1/vaults/{vaultID}
+PATCH  /v1/vaults/{vaultID}
+DELETE /v1/vaults/{vaultID}
+
+POST   /v1/vaults/{vaultID}/items
+GET    /v1/vaults/{vaultID}/items
+GET    /v1/vaults/{vaultID}/items/{itemID}
+PUT    /v1/vaults/{vaultID}/items/{itemID}
+DELETE /v1/vaults/{vaultID}/items/{itemID}
+POST   /v1/vaults/{vaultID}/items/{itemID}/restore
+DELETE /v1/vaults/{vaultID}/items/{itemID}/permanent
 ```
 
-The session routes require:
+All session, vault, and item routes require:
 
 ```text
 Authorization: Bearer <access-token>
 ```
 
-See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, security behavior, and Thunder Client examples.
+Item creation also requires `Idempotency-Key`. Item updates and lifecycle mutations require a strong quoted `If-Match` version.
+
+See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, security behavior, pagination, concurrency rules, and Thunder Client examples.
 
 ## Testing and quality
 
@@ -219,14 +244,16 @@ The current integration coverage includes:
 - Registration and login
 - Session creation
 - Access-token verification
-- Refresh-token rotation
-- Replay detection
+- Refresh-token rotation and replay detection
 - Stateful authorization
-- Session listing
-- Targeted revocation
-- Current logout
-- Logout-all
+- Session listing and revocation
 - Cross-user ownership isolation
+- Vault creation, retrieval, renaming, listing, and deletion
+- Item creation, pagination, retrieval, update, soft deletion, restoration, and permanent deletion
+- Idempotent create replay and idempotency conflicts
+- Optimistic-concurrency conflicts
+- Transactional outbox writes
+- Regression checks preventing secret values from entering audit payloads
 - Immediate invalidation of revoked access tokens
 
 GitHub Actions runs formatting checks, module verification, Vet, Staticcheck, race-enabled tests, PostgreSQL integration tests, and Gitleaks.

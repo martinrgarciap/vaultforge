@@ -10,7 +10,13 @@ The current implementation includes:
 - Opaque refresh tokens stored only as SHA-256 digests
 - Refresh-token rotation with replay detection
 - Stateful access-token validation against active PostgreSQL sessions
-- Session listing, targeted revocation, current-session logout, and logout-all
+- Session listing and revocation
+- Owner-scoped vault workflows
+- Complete synthetic vault-item lifecycle workflows
+- Keyset pagination
+- Idempotency keys for item creation
+- Strong `ETag` and `If-Match` optimistic concurrency
+- Sanitized transactional outbox writes
 - Strict JSON decoding, safe public errors, request logging, panic recovery, and security headers
 
 ## Architecture
@@ -27,35 +33,34 @@ Global middleware
     ├── Security headers
     └── Request timeout
     ↓
-Public authentication routes
+Public routes
     └── Authentication handler
           ↓
       Authentication and session services
-          ├── PasswordHasher
-          ├── AccessTokenProvider
-          ├── RefreshTokenProvider
-          ├── UserStore
-          └── SessionStore
-                ↓
-            PostgreSQL
+          ↓
+      PostgreSQL
 
-Protected session routes
+Protected routes
     ↓
 Bearer authentication middleware
-    ├── Verify Ed25519 access token
-    ├── Load the active session family from PostgreSQL
+    ├── Verify the Ed25519 access token
+    ├── Confirm the PostgreSQL session is active
     └── Add the authenticated principal to request context
     ↓
-Session handler
+Session, vault, or item handler
     ↓
-Session service
+Session or vault service
     ↓
-PostgreSQL
+PostgreSQL transaction
+    ├── Domain mutation
+    └── Sanitized outbox event
 ```
 
-The HTTP handlers do not know which algorithm or language performs password hashing.
+Handlers receive ownership from the authenticated principal. Clients cannot select an owner ID in request bodies or query parameters.
 
-The current `PasswordHasher` implementation is a local Go Argon2id adapter. A future Rust gRPC adapter can replace it without changing the handlers or public API.
+The HTTP handlers do not know which algorithm or language performs password hashing. The current `PasswordHasher` implementation is a local Go Argon2id adapter. A future Rust gRPC adapter can replace it without changing the handlers or public API.
+
+Vault-item payloads are currently synthetic generic JSON. The contract is intentionally generic so a later encrypted envelope can replace the synthetic payload without redesigning the item routes.
 
 ## Package layout
 
@@ -64,16 +69,19 @@ apps/api/
 ├── cmd/api/                  # Application entry point and dependency wiring
 ├── internal/
 │   ├── api/
-│   │   ├── authhandler/      # Registration, login, and refresh HTTP handlers
+│   │   ├── authhandler/      # Registration, login, and refresh handlers
 │   │   ├── health/           # Liveness and readiness handlers
+│   │   ├── itemhandler/      # Item lifecycle, pagination, ETag, and idempotency HTTP contracts
 │   │   ├── middleware/       # Logging, recovery, security, and bearer authentication
 │   │   ├── request/          # Strict JSON request decoding
 │   │   ├── response/         # Shared JSON response contracts
-│   │   └── sessionhandler/   # Session listing and revocation HTTP handlers
+│   │   ├── sessionhandler/   # Session listing and revocation handlers
+│   │   └── vaulthandler/     # Vault lifecycle handlers
 │   ├── auth/                 # Password policy, Argon2id, and account authentication
 │   ├── db/                   # PostgreSQL connection setup
-│   ├── session/              # Tokens, login, refresh, authentication, and session orchestration
-│   └── store/                # PostgreSQL persistence
+│   ├── session/              # Tokens, login, refresh, authentication, and sessions
+│   ├── store/                # PostgreSQL stores and transactional operations
+│   └── vault/                # Vault and item domain services and contracts
 └── migrations/               # Versioned SQL migrations
 ```
 
@@ -374,6 +382,217 @@ Successful response:
 
 This revokes every active session belonging to the authenticated user, including the session used to make the request.
 
+## Vault and item routes
+
+All vault and item routes require:
+
+```text
+Authorization: Bearer <access-token>
+```
+
+Ownership comes exclusively from the authenticated principal. Unknown, malformed, deleted, and unowned resources use safe public not-found responses.
+
+> The current item payload is synthetic dummy JSON. Do not store real credentials. Browser-side encryption has not been implemented yet.
+
+### Vault routes
+
+```text
+POST   /v1/vaults
+GET    /v1/vaults
+GET    /v1/vaults/{vaultID}
+PATCH  /v1/vaults/{vaultID}
+DELETE /v1/vaults/{vaultID}
+```
+
+Vault creation and rename requests use:
+
+```json
+{
+  "name": "Development"
+}
+```
+
+Vault responses contain only safe metadata such as ID, name, and timestamps.
+
+### Supported item types
+
+```text
+login
+api_key
+environment_variable
+database_connection
+secure_note
+```
+
+### Create an item
+
+```text
+POST /v1/vaults/{vaultID}/items
+Authorization: Bearer <access-token>
+Content-Type: application/json
+Idempotency-Key: client-generated-key
+```
+
+```json
+{
+  "type": "api_key",
+  "payload": {
+    "label": "Synthetic development key",
+    "token": "synthetic-value-only"
+  }
+}
+```
+
+A successful creation returns:
+
+```text
+201 Created
+ETag: "1"
+Location: /v1/vaults/{vaultID}/items/{itemID}
+```
+
+Replaying the same idempotency key with the same normalized request returns the same item. Reusing it with different request data returns:
+
+```text
+409 Conflict
+```
+
+```json
+{
+  "error": {
+    "code": "idempotency_conflict",
+    "message": "The Idempotency-Key was already used with different request data.",
+    "request_id": "generated-request-id"
+  }
+}
+```
+
+### List items
+
+```text
+GET /v1/vaults/{vaultID}/items
+GET /v1/vaults/{vaultID}/items?state=deleted&limit=20&after=<opaque-cursor>
+```
+
+Query parameters:
+
+| Parameter | Behavior                                                     |
+| --------- | ------------------------------------------------------------ |
+| `state`   | `active` by default; `deleted` selects soft-deleted items    |
+| `limit`   | Defaults to `20`; allowed range is `1` through `100`         |
+| `after`   | Opaque URL-safe keyset cursor returned by the preceding page |
+
+Items are ordered by `updated_at DESC, id DESC`.
+
+```json
+{
+  "items": [
+    {
+      "id": "generated-item-id",
+      "type": "secure_note",
+      "payload": {
+        "value": "synthetic"
+      },
+      "version": 1,
+      "createdAt": "timestamp",
+      "updatedAt": "timestamp"
+    }
+  ],
+  "nextCursor": "opaque-cursor-when-another-page-exists"
+}
+```
+
+The parent vault ID and owner ID are not repeated in public item resources.
+
+### Retrieve an item
+
+```text
+GET /v1/vaults/{vaultID}/items/{itemID}
+GET /v1/vaults/{vaultID}/items/{itemID}?state=deleted
+```
+
+Successful retrieval returns the current strong version:
+
+```text
+200 OK
+ETag: "2"
+```
+
+### Update an item
+
+```text
+PUT /v1/vaults/{vaultID}/items/{itemID}
+Authorization: Bearer <access-token>
+Content-Type: application/json
+If-Match: "2"
+```
+
+```json
+{
+  "type": "secure_note",
+  "payload": {
+    "value": "updated synthetic value"
+  }
+}
+```
+
+A successful update increments the version and returns the replacement `ETag`.
+
+Missing `If-Match` returns `428 Precondition Required`. A malformed header returns `400 Bad Request`. A stale version returns:
+
+```text
+412 Precondition Failed
+```
+
+```json
+{
+  "error": {
+    "code": "item_version_conflict",
+    "message": "The item changed after the supplied version was retrieved.",
+    "request_id": "generated-request-id"
+  }
+}
+```
+
+### Soft-delete, restore, and permanently delete
+
+```text
+DELETE /v1/vaults/{vaultID}/items/{itemID}
+POST   /v1/vaults/{vaultID}/items/{itemID}/restore
+DELETE /v1/vaults/{vaultID}/items/{itemID}/permanent
+```
+
+Each request requires:
+
+```text
+If-Match: "<current-version>"
+```
+
+Soft deletion returns the deleted resource and keeps the current version. Restoration clears `deletedAt` and increments the version. Permanent deletion is allowed only for a currently deleted item and returns:
+
+```text
+204 No Content
+```
+
+### Item response example
+
+```json
+{
+  "item": {
+    "id": "generated-item-id",
+    "type": "api_key",
+    "payload": {
+      "label": "Synthetic key",
+      "token": "synthetic-value-only"
+    },
+    "version": 1,
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp",
+    "deletedAt": "timestamp only when deleted"
+  }
+}
+```
+
 ## Authentication behavior
 
 ### Email handling
@@ -487,6 +706,9 @@ Examples:
 | Invalid refresh token                 |           `401 Unauthorized` |
 | Unknown or unowned session            |              `404 Not Found` |
 | Duplicate email                       |               `409 Conflict` |
+| Item idempotency conflict             |               `409 Conflict` |
+| Stale item version                    |    `412 Precondition Failed` |
+| Missing item `If-Match`               |  `428 Precondition Required` |
 | Oversized request                     |      `413 Content Too Large` |
 | Unsupported content type              | `415 Unsupported Media Type` |
 | Invalid registration field            |   `422 Unprocessable Entity` |
@@ -558,19 +780,23 @@ The integration suite:
 2. Applies all migrations.
 3. Opens a real PostgreSQL pool.
 4. Tests schema rules and PostgreSQL repositories.
-5. Tests registration, login, refresh rotation, replay detection, authorization, session listing, targeted revocation, current logout, and logout-all through the real HTTP stack.
-6. Verifies ownership isolation and immediate invalidation of revoked access tokens.
-7. Rolls the test database back to version zero.
+5. Tests registration, login, refresh rotation, replay detection, authorization, session listing, and revocation through the real HTTP stack.
+6. Tests owner-scoped vault and item workflows.
+7. Tests item pagination, idempotency, optimistic concurrency, soft deletion, restoration, and permanent deletion.
+8. Verifies transactional outbox writes remain atomic with domain mutations.
+9. Verifies sanitized audit metadata never contains item payloads, keys, names, hashes, or other secret values.
+10. Verifies cross-user ownership isolation and immediate invalidation of revoked access tokens.
+11. Rolls the test database back to version zero.
 
-The authentication and session integration tests use the real:
+The integration tests use the real:
 
 - Chi router
 - HTTP middleware
-- Authentication and session handlers
-- Authentication and session services
+- Authentication, session, vault, and item handlers
+- Authentication, session, and vault services
 - Argon2id adapter
 - Ed25519 token manager
-- PostgreSQL stores
+- PostgreSQL stores and transactions
 
 ## Quality checks
 

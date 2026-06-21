@@ -23,24 +23,34 @@ flowchart LR
     A[Go API]
     AH[Authentication Handler]
     SH[Session Handler]
+    VH[Vault Handler]
+    IH[Item Handler]
     M[Bearer Authentication Middleware]
     AS[Authentication Service]
     SS[Session Service]
+    VS[Vault Service]
     H[Local Go Argon2id Adapter]
     T[Ed25519 Token Manager]
     P[(PostgreSQL)]
+    O[(Transactional Outbox)]
 
     C -->|HTTP and JSON| A
     A --> AH
     A --> M
     M --> SH
+    M --> VH
+    M --> IH
     AH --> AS
     AH --> SS
     SH --> SS
+    VH --> VS
+    IH --> VS
     AS --> H
-    AS --> P
     SS --> T
+    AS --> P
     SS --> P
+    VS --> P
+    VS --> O
 ```
 
 ## Current request flow
@@ -68,7 +78,7 @@ Authentication or session service
       PostgreSQL
 ```
 
-### Protected session requests
+### Protected session, vault, and item requests
 
 ```text
 HTTP request
@@ -83,11 +93,17 @@ Bearer authentication middleware
     ├── Confirm active session state in PostgreSQL
     └── Store the authenticated principal in request context
     ↓
-Session handler
+Session, vault, or item handler
     ↓
-Session service
+Domain service
+    ├── Validate input and state transitions
+    ├── Enforce ownership using the authenticated user ID
+    ├── Enforce idempotency or expected version where required
+    └── Map internal failures to safe public errors
     ↓
-PostgreSQL
+PostgreSQL transaction
+    ├── Domain mutation
+    └── Sanitized transactional outbox event
 ```
 
 ## Current responsibilities
@@ -97,16 +113,21 @@ PostgreSQL
 - Exposes JSON HTTP routes.
 - Handles request validation and public error mapping.
 - Coordinates registration, login, refresh, authorization, and session management.
+- Creates, lists, retrieves, renames, and deletes owner-scoped vaults.
+- Creates, lists, retrieves, updates, soft-deletes, restores, and permanently deletes owner-scoped items.
+- Supports opaque keyset pagination for item collections.
+- Enforces idempotency keys for item creation.
+- Enforces strong `ETag` and `If-Match` optimistic concurrency.
+- Writes sanitized audit events through a transactional outbox.
 - Normalizes account emails.
 - Applies account-password policy.
 - Calls the replaceable password hasher.
 - Issues and verifies Ed25519 access tokens.
 - Generates and rotates opaque refresh tokens.
 - Enforces active-session checks for protected requests.
-- Lists and revokes user-owned session families.
-- Persists user and session records through PostgreSQL stores.
 - Exposes liveness and database-backed readiness routes.
 - Logs safe request metadata only.
+- Accepts only synthetic item payloads until browser-side encryption is implemented.
 
 ### Local Argon2id adapter
 
@@ -156,11 +177,14 @@ Currently stores:
 - Token-family identifiers
 - Session expiration and revocation timestamps
 - Session user-agent metadata
-- Vault metadata
-- Opaque encrypted item payloads
-- Immutable item-version records
+- Owner-scoped vault metadata
+- Synthetic generic item payloads during the current backend phase
+- Item versions, timestamps, and deletion state
+- Sanitized transactional outbox records
 
-PostgreSQL never stores plaintext account passwords, raw refresh tokens, access tokens, or plaintext vault-item fields.
+PostgreSQL never stores plaintext account passwords, raw refresh tokens, access tokens, vault passphrases, unwrapped encryption keys, or real vault secrets.
+
+The current synthetic item payload is intentionally temporary. A future browser-side encryption phase will replace it with an opaque encrypted envelope.
 
 ## Current account registration flow
 
@@ -296,6 +320,36 @@ Ownership is enforced by querying with both:
 - Requested token-family ID
 
 Unknown, already-revoked, and other users’ session identifiers return the same public `session_not_found` result.
+
+## Current vault and item workflow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as Auth Middleware
+    participant H as Vault or Item Handler
+    participant S as Vault Service
+    participant P as PostgreSQL
+
+    C->>M: Bearer access token and request
+    M->>P: Confirm active session
+    P-->>M: Authenticated principal
+    M->>H: Request with owner ID in context
+    H->>S: Owner-scoped domain input
+    S->>P: Begin transaction
+    S->>P: Apply vault or item mutation
+    S->>P: Insert sanitized outbox event
+    S->>P: Commit transaction
+    P-->>S: Safe domain result
+    S-->>H: Vault, item, page, or no-content result
+    H-->>C: JSON, ETag, Location, or 204
+```
+
+Item creation requires an idempotency key. Update, soft-delete, restore, and permanent-delete operations require the current strong item version through `If-Match`.
+
+Item collection pagination uses an opaque URL-safe cursor backed by `updated_at DESC, id DESC` ordering.
+
+Outbox payloads contain only allow-listed versioned metadata. They never include item payloads, vault names, keys, hashes, or other secret-bearing values.
 
 ## Target architecture
 
@@ -439,15 +493,18 @@ Completed:
 - Opaque refresh-token rotation
 - Replay detection and token-family revocation
 - Stateful authorization middleware
-- Active-session listing
-- Targeted session revocation
-- Current-session logout
-- Logout-all
-- Real PostgreSQL and HTTP integration tests
+- Active-session listing and revocation
+- Owner-scoped vault lifecycle
+- Owner-scoped item lifecycle
+- Item pagination
+- Idempotent item creation
+- Optimistic concurrency with `ETag` and `If-Match`
+- Sanitized transactional outbox integration
+- Unit, route, service, store, and real PostgreSQL integration tests
 
 Next:
 
-- Complete Step 5 documentation and CI checkpoint
-- Begin vault CRUD and ownership enforcement
+- Complete the Step 6 documentation and CI checkpoint
+- Begin Redis-backed rate limiting, lockouts, and reliability controls
 
-Later phases add a minimal client, Redis, RabbitMQ, observability, Rust services, browser-side encryption, deployment, and release documentation.
+Later phases add a minimal client, RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.

@@ -36,23 +36,38 @@ func (app *Application) Routes() http.Handler {
 		})
 
 		router.Group(func(router chi.Router) {
-			router.Use(
-				appmiddleware.RequireAuthentication(
-					app.sessionService,
-					app.logger,
-				),
-			)
+			router.Use(appmiddleware.RequireAuthentication(app.sessionService, app.logger))
 
-			router.Get("/sessions", app.sessionHandler.List)
-			router.Delete("/sessions", app.sessionHandler.LogoutAll)
-			router.Delete("/sessions/current", app.sessionHandler.LogoutCurrent)
-			router.Delete("/sessions/{sessionID}", app.sessionHandler.Revoke)
+			router.Route("/sessions", func(router chi.Router) {
+				router.Get("/", app.sessionHandler.List)
+				router.Delete("/", app.sessionHandler.LogoutAll)
+				router.Delete("/current", app.sessionHandler.LogoutCurrent)
+				router.Delete("/{sessionID}", app.sessionHandler.Revoke)
+			})
 
-			router.Post("/vaults", app.vaultHandler.Create)
-			router.Get("/vaults", app.vaultHandler.List)
-			router.Get("/vaults/{vaultID}", app.vaultHandler.Get)
-			router.Patch("/vaults/{vaultID}", app.vaultHandler.Rename)
-			router.Delete("/vaults/{vaultID}", app.vaultHandler.Delete)
+			router.Route("/vaults", func(router chi.Router) {
+				router.Post("/", app.vaultHandler.Create)
+				router.Get("/", app.vaultHandler.List)
+
+				router.Route("/{vaultID}", func(router chi.Router) {
+					router.Get("/", app.vaultHandler.Get)
+					router.Patch("/", app.vaultHandler.Rename)
+					router.Delete("/", app.vaultHandler.Delete)
+
+					router.Route("/items", func(router chi.Router) {
+						router.Post("/", app.itemHandler.Create)
+						router.Get("/", app.itemHandler.List)
+
+						router.Route("/{itemID}", func(router chi.Router) {
+							router.Get("/", app.itemHandler.Get)
+							router.Put("/", app.itemHandler.Update)
+							router.Delete("/", app.itemHandler.SoftDelete)
+							router.Post("/restore", app.itemHandler.Restore)
+							router.Delete("/permanent", app.itemHandler.PermanentDelete)
+						})
+					})
+				})
+			})
 		})
 	})
 

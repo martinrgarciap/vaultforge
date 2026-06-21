@@ -179,6 +179,7 @@ func newApplicationWithVaultService(vaultService *routeTestVaultService) *Applic
 		authService,
 		newTestLoginSessionService(authService),
 		vaultService,
+		nil,
 	)
 }
 

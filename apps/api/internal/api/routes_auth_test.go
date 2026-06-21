@@ -570,6 +570,7 @@ func newApplicationWithAuthService(
 			authService,
 		),
 		nil,
+		nil,
 	)
 }
 

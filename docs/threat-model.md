@@ -87,15 +87,15 @@ Request bodies, authorization headers, cookies, passwords, hashes, tokens, token
 
 ## 5. Component visibility
 
-| Component             | Allowed to see                                                                                                                                | Must never see or retain                                                                                                                      |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser or API client | Account password while entered, access token, refresh token, and later vault keys and decrypted items while unlocked                          | Keys or decrypted content in URLs, analytics, persistent logs, or error reports                                                               |
-| Go API                | Account password transiently during authentication, raw refresh token transiently during issuance or rotation, user ID, and claims            | Vault master passphrase, KEK, unwrapped DEK, decrypted items, raw refresh tokens in persistent storage, or tokens in logs                     |
-| Rust hashing service  | Account password transiently and PHC password hash while processing                                                                           | Vault passphrase, vault key, vault items, session tokens, or persistent password storage                                                      |
-| PostgreSQL            | Email, password hash, password algorithm, refresh-token digest, session family metadata, vault metadata, ciphertext, nonce, salt, wrapped key | Plaintext account password, raw refresh token, access token, vault passphrase, unwrapped key, or plaintext vault item                         |
-| Redis                 | Rate-limit identifiers, failed-login counters, and short-lived lockout state                                                                  | Passwords, password hashes, raw tokens, vault secrets, encryption keys, or decrypted data                                                     |
-| Logs and telemetry    | Request ID, trace ID, method, route template, status, duration, sanitized user ID, and dependency status                                      | Request bodies, Authorization headers, cookies, passwords, hashes, tokens, token digests, signing seeds, vault payloads, keys, decrypted data |
-| CI and GitHub         | Source code, public test fixtures, and placeholder configuration                                                                              | Credentials, signing keys, access tokens, real environment files, or real vault data                                                          |
+| Component             | Allowed to see                                                                                                                                                                                    | Must never see or retain                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser or API client | Account password while entered, access token, refresh token, and later vault keys and decrypted items while unlocked                                                                              | Keys or decrypted content in URLs, analytics, persistent logs, or error reports                                                                                           |
+| Go API                | Account password and raw refresh token transiently during authentication, authenticated IDs, vault names, item types, and synthetic dummy item payloads during the current backend phase          | Vault master passphrase, KEK, unwrapped DEK, real vault secrets, future decrypted item contents, raw refresh tokens in persistent storage, or tokens and payloads in logs |
+| Rust hashing service  | Account password transiently and PHC password hash while processing                                                                                                                               | Vault passphrase, vault key, vault items, session tokens, or persistent password storage                                                                                  |
+| PostgreSQL            | Email, password hash, password algorithm, refresh-token digest, session metadata, vault metadata, synthetic dummy payloads during the current phase, item versions, and sanitized outbox metadata | Plaintext account password, raw refresh token, access token, vault passphrase, unwrapped key, real vault secrets, or future decrypted vault items                         |
+| Redis                 | Rate-limit identifiers, failed-login counters, and short-lived lockout state                                                                                                                      | Passwords, password hashes, raw tokens, vault secrets, encryption keys, or decrypted data                                                                                 |
+| Logs and telemetry    | Request ID, trace ID, method, route template, status, duration, sanitized user ID, and dependency status                                                                                          | Request bodies, Authorization headers, cookies, passwords, hashes, tokens, token digests, signing seeds, vault payloads, keys, decrypted data                             |
+| CI and GitHub         | Source code, public test fixtures, and placeholder configuration                                                                                                                                  | Credentials, signing keys, access tokens, real environment files, or real vault data                                                                                      |
 
 ## 6. Threats and mitigations
 
@@ -109,7 +109,10 @@ Request bodies, authorization headers, cookies, passwords, hashes, tokens, token
 | Refresh-token theft              | Stolen refresh token is submitted                    | Current: opaque random tokens, digest-only storage, rotation, bounded lifetime, and family revocation            |
 | Refresh-token replay             | An old refresh token is reused after rotation        | Current: replay detection and token-family revocation                                                            |
 | Cross-user session revocation    | User guesses another user's session ID               | Current: revoke queries require both authenticated user ID and token-family ID                                   |
-| Insecure direct object reference | User guesses another user's vault or item ID         | Planned: server-side owner checks for every vault and item operation                                             |
+| Insecure direct object reference | User guesses another user's vault or item ID         | Current: authenticated owner ID is supplied by middleware and every vault and item query is owner-scoped         |
+| Lost update                      | Two clients update the same item concurrently        | Current: strong ETags and required If-Match versions reject stale updates                                        |
+| Duplicate create replay          | A client retries an item creation request            | Current: idempotency keys replay the same request and reject conflicting reuse                                   |
+| Audit-event secret leakage       | A payload or key is copied into an outbox event      | Current: versioned allow-listed metadata and regression tests reject secret-bearing audit fields                 |
 | Secret leakage                   | Password or token enters a log                       | Current: allow-listed structured logging and automated no-secret logging tests                                   |
 | Ciphertext tampering             | Stored encrypted data is modified                    | Planned: AES-GCM authenticated encryption and authentication-tag verification                                    |
 | Nonce reuse                      | The same AES-GCM nonce is reused with one key        | Planned: secure random nonce generation and automated tests                                                      |
@@ -127,6 +130,7 @@ Request bodies, authorization headers, cookies, passwords, hashes, tokens, token
 - VaultForge has not received an independent security audit.
 - Only synthetic secrets are permitted during development.
 - Client-side vault encryption is not implemented yet.
+- Current synthetic item payloads are visible to the Go API and PostgreSQL.
 - During the backend-only phase, refresh tokens are returned in JSON rather than secure cookies.
 - CSRF protection for cookie-authenticated refresh requests is not implemented yet.
 - Production signing-key storage, rotation, and multi-key verification are not implemented yet.
@@ -146,7 +150,7 @@ These rules must remain true throughout development:
 1. Account authentication and vault encryption remain separate.
 2. The backend never receives the vault master passphrase.
 3. The backend never receives the unwrapped vault data-encryption key.
-4. Decrypted vault items never enter server-side storage.
+4. Real or decrypted vault secrets never enter server-side storage; current item payloads contain synthetic test data only.
 5. Authentication never falls back to a weaker method when the hasher is unavailable.
 6. Raw refresh tokens are not stored in PostgreSQL.
 7. Access tokens are not stored in PostgreSQL.
