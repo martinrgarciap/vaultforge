@@ -9,6 +9,9 @@ The current implementation includes:
 - Ed25519-signed access tokens
 - Opaque refresh tokens stored only as SHA-256 digests
 - Refresh-token rotation with replay detection
+- Host-only `HttpOnly`, `SameSite=Strict` refresh cookies
+- Double-submit CSRF protection for refresh requests
+- Refresh and CSRF cookie rotation and logout clearing
 - Stateful access-token validation against active PostgreSQL sessions
 - Session listing and revocation
 - Owner-scoped vault workflows
@@ -73,8 +76,9 @@ apps/api/
 │   │   ├── health/           # Liveness and readiness handlers
 │   │   ├── itemhandler/      # Item lifecycle, pagination, ETag, and idempotency HTTP contracts
 │   │   ├── middleware/       # Logging, recovery, security, and bearer authentication
-│   │   ├── request/          # Strict JSON request decoding
+│   │   ├── request/          # Strict JSON and bodyless-request validation
 │   │   ├── response/         # Shared JSON response contracts
+│   │   ├── sessioncookie/    # Refresh-cookie and CSRF transport
 │   │   ├── sessionhandler/   # Session listing and revocation handlers
 │   │   └── vaulthandler/     # Vault lifecycle handlers
 │   ├── auth/                 # Password policy, Argon2id, and account authentication
@@ -197,6 +201,7 @@ Successful response:
 
 ```text
 200 OK
+Cache-Control: no-store
 ```
 
 ```json
@@ -211,10 +216,20 @@ Successful response:
   "tokenType": "Bearer",
   "accessToken": "signed-access-token",
   "accessTokenExpiresAt": "timestamp",
-  "refreshToken": "opaque-refresh-token",
   "refreshTokenExpiresAt": "timestamp"
 }
 ```
+
+The response does not expose the refresh token in JSON.
+
+Login also sets two host-only cookies:
+
+```text
+vaultforge_refresh=[REDACTED]; Path=/v1/auth/refresh; HttpOnly; SameSite=Strict
+vaultforge_csrf=[REDACTED]; Path=/; SameSite=Strict
+```
+
+Both cookies use the same absolute refresh-family expiration. Production adds the `Secure` flag. Local development omits it so the API can run over HTTP.
 
 Each login creates a new session family. The supplied user agent is stored as session metadata.
 
@@ -224,24 +239,29 @@ Each login creates a new session family. The supplied user agent is stored as se
 POST http://localhost:8080/v1/auth/refresh
 ```
 
-Thunder Client configuration:
+Thunder Client must retain the cookies issued during login.
+
+Configuration:
 
 ```text
 Method:  POST
-Header:  Content-Type: application/json
-Body:    JSON
+Header:  X-CSRF-Token: <current vaultforge_csrf cookie value>
+Body:    None
 ```
 
-```json
-{
-  "refreshToken": "opaque-refresh-token"
-}
-```
+Do not send JSON and do not set `Content-Type`. The request must be bodyless.
+
+The browser or HTTP client sends:
+
+- The `vaultforge_refresh` cookie automatically
+- The readable `vaultforge_csrf` cookie automatically
+- The same CSRF value in `X-CSRF-Token`
 
 Successful response:
 
 ```text
 200 OK
+Cache-Control: no-store
 ```
 
 ```json
@@ -249,19 +269,56 @@ Successful response:
   "tokenType": "Bearer",
   "accessToken": "new-signed-access-token",
   "accessTokenExpiresAt": "timestamp",
-  "refreshToken": "new-opaque-refresh-token",
   "refreshTokenExpiresAt": "timestamp"
 }
 ```
 
-Refresh tokens are single-use. A successful refresh:
+A successful refresh:
 
-1. Revokes the submitted refresh-token row.
-2. Creates a replacement row in the same token family.
-3. Preserves the family’s absolute expiration time.
-4. Issues a new access token for the same user and session family.
+1. Validates exactly one refresh cookie.
+2. Validates exactly one CSRF cookie and one `X-CSRF-Token` header.
+3. Requires the CSRF cookie and header to match.
+4. Revokes the submitted refresh-token row.
+5. Creates a replacement row in the same token family.
+6. Preserves the family’s absolute expiration time.
+7. Issues a new access token.
+8. Rotates both the refresh and CSRF cookies.
 
-Reusing an already-rotated refresh token is treated as replay. The entire token family is revoked.
+The replacement refresh token is never included in JSON. After a successful refresh, clients must use the newly issued CSRF cookie value for the next refresh request.
+
+A missing, malformed, duplicated, or mismatched CSRF value returns:
+
+```text
+403 Forbidden
+```
+
+```json
+{
+  "error": {
+    "code": "csrf_validation_failed",
+    "message": "The CSRF token is missing or invalid.",
+    "request_id": "generated-request-id"
+  }
+}
+```
+
+A non-empty refresh request body returns:
+
+```text
+400 Bad Request
+```
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "The refresh request must not contain a body.",
+    "request_id": "generated-request-id"
+  }
+}
+```
+
+Refresh tokens are single-use. Reusing an already-rotated refresh token is treated as replay, and the entire token family is revoked.
 
 Invalid, expired, revoked, replayed, malformed, and disabled-user refresh states return the same public response:
 
@@ -278,6 +335,8 @@ Invalid, expired, revoked, replayed, malformed, and disabled-user refresh states
   }
 }
 ```
+
+Invalid refresh credentials also clear stale refresh and CSRF cookies.
 
 ## Protected session routes
 
@@ -336,7 +395,7 @@ Successful response:
 204 No Content
 ```
 
-This revokes the authenticated token family. Its existing access and refresh tokens can no longer be used.
+This revokes the authenticated token family. Its existing access and refresh tokens can no longer be used. The response also clears the current browser’s refresh and CSRF cookies.
 
 ### Revoke one owned session
 
@@ -350,6 +409,8 @@ Successful response:
 ```text
 204 No Content
 ```
+
+Revoking the current session by ID also clears the browser’s refresh and CSRF cookies. Revoking a different owned session does not clear the current browser cookies.
 
 Unknown, already-revoked, and other users’ session IDs return the same public result:
 
@@ -380,7 +441,7 @@ Successful response:
 204 No Content
 ```
 
-This revokes every active session belonging to the authenticated user, including the session used to make the request.
+This revokes every active session belonging to the authenticated user, including the session used to make the request, and clears the current browser’s refresh and CSRF cookies.
 
 ## Vault and item routes
 
@@ -675,26 +736,44 @@ Access tokens:
 - Include the user ID as the subject
 - Include the token-family ID in the `sid` claim
 - Include issuer, audience, issued-at, not-before, and expiration claims
+- Are returned in login and refresh JSON responses
+- Must be held only in client memory
+- Must not be stored in `localStorage`, `sessionStorage`, IndexedDB, URLs, logs, or error reports
 - Are never stored in PostgreSQL
 
 Refresh tokens:
 
 - Are cryptographically random opaque values
-- Are returned in JSON during the current backend-only phase
+- Are never returned in JSON
+- Are delivered through a host-only `HttpOnly` cookie
+- Use `Path=/v1/auth/refresh`
+- Use `SameSite=Strict`
+- Use `Secure` in production
 - Are stored in PostgreSQL only as SHA-256 digests
 - Are rotated after each successful use
+- Preserve the token family’s absolute expiration
 - Use family-wide revocation after replay detection
 
-Frontend cookies and CSRF protection are deferred until the frontend integration stage.
+CSRF protection:
+
+- Uses a separate readable `vaultforge_csrf` cookie
+- Requires exactly one `X-CSRF-Token` header
+- Requires the cookie and header values to match
+- Rotates the CSRF token with every successful refresh
+- Rejects missing, duplicated, malformed, or mismatched values
+
+Login and refresh responses use `Cache-Control: no-store`.
 
 ## Request protection
 
-Authentication JSON requests must:
+Registration and login JSON requests must:
 
 - Use `Content-Type: application/json`
 - Contain exactly one JSON object
 - Use only documented fields
 - Remain within the configured request-body limit
+
+Refresh requests must contain no body and must use the cookie and CSRF-header contract described above.
 
 Examples:
 
@@ -704,6 +783,8 @@ Examples:
 | Missing or invalid access token       |           `401 Unauthorized` |
 | Incorrect credentials                 |           `401 Unauthorized` |
 | Invalid refresh token                 |           `401 Unauthorized` |
+| Missing or invalid refresh CSRF token |              `403 Forbidden` |
+| Non-empty refresh request body        |            `400 Bad Request` |
 | Unknown or unowned session            |              `404 Not Found` |
 | Duplicate email                       |               `409 Conflict` |
 | Item idempotency conflict             |               `409 Conflict` |
@@ -780,7 +861,7 @@ The integration suite:
 2. Applies all migrations.
 3. Opens a real PostgreSQL pool.
 4. Tests schema rules and PostgreSQL repositories.
-5. Tests registration, login, refresh rotation, replay detection, authorization, session listing, and revocation through the real HTTP stack.
+5. Tests registration, login cookie issuance, login-issued CSRF use, refresh-cookie and CSRF rotation, replay detection, authorization, session listing, and revocation through the real HTTP stack.
 6. Tests owner-scoped vault and item workflows.
 7. Tests item pagination, idempotency, optimistic concurrency, soft deletion, restoration, and permanent deletion.
 8. Verifies transactional outbox writes remain atomic with domain mutations.
@@ -816,7 +897,7 @@ GitHub Actions runs the repository verification workflow for pushed commits and 
 
 ## Security rules
 
-Never log or return:
+Never log or return outside the documented authentication response and cookie transport:
 
 - Request bodies
 - Plaintext passwords

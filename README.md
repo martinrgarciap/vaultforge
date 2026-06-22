@@ -19,6 +19,7 @@ Go REST API
   ├── Account registration and login
   ├── Ed25519 access tokens
   ├── Opaque refresh-token rotation
+  ├── HttpOnly refresh cookies and CSRF protection
   ├── Stateful bearer authorization
   ├── Session listing and revocation
   ├── Owner-scoped vault workflows
@@ -42,7 +43,7 @@ graph LR
     A --> O["OpenTelemetry"]
 ```
 
-Redis, RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, and the React client remain planned roadmap work. Vault and synthetic item workflows are implemented, but client-side vault encryption is not.
+The React client is the next active roadmap phase. Redis, RabbitMQ publishing, OpenTelemetry, Rust services, and WebAssembly cryptography remain planned work. Vault and synthetic item workflows are implemented, but client-side vault encryption is not.
 
 ### Account authentication
 
@@ -52,9 +53,12 @@ The current development implementation uses a local Argon2id adapter. A later Ru
 
 Successful login creates a server-side session family and returns:
 
-- A short-lived Ed25519-signed access token
-- A single-use opaque refresh token
-- Access-token and refresh-token expiration times
+- A short-lived Ed25519-signed access token in JSON
+- Access-token and refresh-token expiration times in JSON
+- A single-use opaque refresh token in a host-only `HttpOnly` cookie
+- A readable CSRF cookie used with the `X-CSRF-Token` header
+
+Login and refresh responses use `Cache-Control: no-store`. Refresh requests are bodyless, require the refresh cookie plus an exact CSRF cookie/header match, and rotate both cookies after success.
 
 Refresh tokens are stored in PostgreSQL only as SHA-256 digests. Refresh rotation preserves the session family and detects replay.
 
@@ -76,6 +80,9 @@ The current backend supports:
 - Opaque refresh tokens stored only as SHA-256 digests
 - Atomic refresh-token rotation
 - Refresh-token replay detection and family revocation
+- Host-only `HttpOnly`, `SameSite=Strict` refresh cookies
+- Double-submit CSRF protection for refresh requests
+- Refresh and CSRF cookie rotation and logout clearing
 - Stateful bearer authentication backed by PostgreSQL
 - Active-session listing and revocation
 - Owner-scoped vault creation, listing, retrieval, renaming, and deletion
@@ -94,14 +101,14 @@ The current backend supports:
 
 Item payloads currently contain synthetic dummy JSON only. They are visible to the Go API and PostgreSQL until the future browser-side encryption phase replaces them with encrypted envelopes.
 
-Frontend, Redis, RabbitMQ publishing, Rust services, WebAssembly cryptography, and production deployment work remain deferred to later roadmap phases.
+The React client is the next active roadmap phase. Redis, RabbitMQ publishing, Rust services, WebAssembly cryptography, and production deployment remain later roadmap work.
 
 ## Technology
 
 - **Backend:** Go, Chi, pgx, Zap
 - **Database:** PostgreSQL
 - **Authentication:** Argon2id through a replaceable hasher interface
-- **Tokens:** Ed25519 JWT access tokens and opaque refresh tokens
+- **Tokens:** Ed25519 JWT access tokens, opaque refresh tokens, and cookie-based refresh transport
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Testing:** Go testing, race detector, real PostgreSQL integration tests
 - **Quality:** gofmt, Vet, Staticcheck, Gitleaks
@@ -244,6 +251,7 @@ The current integration coverage includes:
 - Registration and login
 - Session creation
 - Access-token verification
+- Browser refresh-cookie issuance, CSRF validation, cookie rotation, and logout clearing
 - Refresh-token rotation and replay detection
 - Stateful authorization
 - Session listing and revocation
@@ -260,7 +268,7 @@ GitHub Actions runs formatting checks, module verification, Vet, Staticcheck, ra
 
 ## Security boundary
 
-VaultForge must never log or expose:
+VaultForge must never log or expose outside the documented authentication transport:
 
 - Plaintext passwords
 - Encoded password hashes
@@ -276,7 +284,7 @@ VaultForge must never log or expose:
 
 Account password hashing, session authentication, and future vault encryption are separate security concerns.
 
-During the current backend-only phase, refresh tokens are returned in JSON. Secure cookies and CSRF protection are deferred until frontend integration.
+Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development permits HTTP.
 
 See:
 

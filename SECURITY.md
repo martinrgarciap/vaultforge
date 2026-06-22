@@ -41,9 +41,10 @@ Unknown email addresses, incorrect passwords, invalid login input, and disabled 
 
 Successful login creates a server-side session family and returns:
 
-- A short-lived Ed25519-signed access token
-- A single-use opaque refresh token
-- Access-token and refresh-token expiration times
+- A short-lived Ed25519-signed access token in JSON
+- Access-token and refresh-token expiration times in JSON
+- A single-use opaque refresh token in a host-only `HttpOnly` cookie
+- A readable CSRF cookie for double-submit validation
 
 Access tokens:
 
@@ -55,10 +56,23 @@ Access tokens:
 Refresh tokens:
 
 - Are generated using cryptographically secure randomness
+- Are never returned in JSON
+- Are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`
+- Use the `Secure` cookie flag in production
 - Are stored in PostgreSQL only as SHA-256 digests
 - Are rotated after every successful use
 - Preserve the session family and absolute refresh expiration
 - Trigger family-wide revocation when replay is detected
+
+Refresh requests:
+
+- Must not contain a request body
+- Require the refresh cookie
+- Require exactly one readable CSRF cookie and one `X-CSRF-Token` header
+- Require the CSRF cookie and header to match
+- Rotate both the refresh and CSRF cookies after success
+- Clear stale browser cookies after invalid refresh credentials
+- Use `Cache-Control: no-store` on login and refresh responses
 
 Revoking a session immediately prevents its existing access and refresh tokens from being used.
 
@@ -71,7 +85,7 @@ Users may:
 
 Unknown, already-revoked, and other users’ session identifiers return the same public not-found response.
 
-During the current backend-only phase, refresh tokens are returned in JSON responses. Secure cookies and CSRF protection are deferred until frontend integration.
+Logout of the current session, revocation of the current session by ID, and logout of all sessions clear both browser session cookies. Revoking a different session does not clear the current browser cookies.
 
 ## Signing-key handling
 
@@ -154,6 +168,9 @@ The current backend includes:
 - Stateful session validation on protected routes
 - Opaque refresh-token rotation
 - Replay detection and token-family revocation
+- Host-only `HttpOnly`, `SameSite=Strict` refresh cookies
+- Double-submit CSRF protection for bodyless refresh requests
+- Refresh and CSRF cookie rotation and logout clearing
 - Ownership checks for session, vault, and item operations
 - Strict JSON decoding and body-size limits
 - Idempotency-key protection for item creation
@@ -173,9 +190,9 @@ The current backend includes:
 - Client-side vault encryption is not yet implemented.
 - Current synthetic item payloads are visible to the Go API and PostgreSQL.
 - Rate limiting and login lockouts are not yet implemented.
-- Secure refresh-token cookies and CSRF protection are not yet implemented.
 - Production signing-key storage and rotation are not yet implemented.
-- Local development may use unencrypted HTTP.
+- Local development may use unencrypted HTTP and therefore omits the cookie `Secure` flag; production enables it.
+- A successful cross-site scripting attack could access the in-memory access token and readable CSRF token, although not the `HttpOnly` refresh token.
 - Account recovery is not implemented.
 - Multi-factor authentication is not implemented.
 - A compromised browser could access decrypted data while a future vault is unlocked.

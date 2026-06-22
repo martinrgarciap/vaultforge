@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
@@ -142,15 +143,9 @@ func TestHandlerRegister(t *testing.T) {
 func TestHandlerLogin(t *testing.T) {
 	t.Parallel()
 
-	loginResult :=
-		newHandlerTestLoginResult(t)
-
-	service := &fakeAuthService{
-		loginResult: loginResult,
-	}
-
+	loginResult := newHandlerTestLoginResult(t)
+	service := &fakeAuthService{loginResult: loginResult}
 	router := newTestRouter(service)
-
 	request := newJSONRequest(
 		http.MethodPost,
 		"/v1/auth/login",
@@ -159,29 +154,16 @@ func TestHandlerLogin(t *testing.T) {
 			"password": "correct horse battery staple"
 		}`,
 	)
-
-	request.Header.Set(
-		"User-Agent",
-		"Thunder Client",
-	)
+	request.Header.Set("User-Agent", "Thunder Client")
 
 	recorder := httptest.NewRecorder()
-
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
-		t.Fatalf(
-			"status = %d, want %d",
-			recorder.Code,
-			http.StatusOK,
-		)
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-
 	if service.loginCalls != 1 {
-		t.Fatalf(
-			"Login() calls = %d, want 1",
-			service.loginCalls,
-		)
+		t.Fatalf("Login() calls = %d, want 1", service.loginCalls)
 	}
 
 	expectedInput := session.LoginInput{
@@ -189,68 +171,46 @@ func TestHandlerLogin(t *testing.T) {
 		Password:  handlerTestPassword,
 		UserAgent: "Thunder Client",
 	}
-
 	if service.lastLoginInput != expectedInput {
-		t.Fatalf(
-			"Login() input = %+v, want %+v",
-			service.lastLoginInput,
-			expectedInput,
-		)
+		t.Fatalf("Login() input = %+v, want %+v", service.lastLoginInput, expectedInput)
 	}
 
 	var body loginResponse
-
-	if err := json.NewDecoder(
-		recorder.Body,
-	).Decode(&body); err != nil {
-		t.Fatalf(
-			"failed to decode response: %v",
-			err,
-		)
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
 	}
-
-	if body.User.ID !=
-		loginResult.Account.ID {
-		t.Fatalf(
-			"response user ID = %q",
-			body.User.ID,
-		)
+	if body.User.ID != loginResult.Account.ID {
+		t.Fatalf("response user ID = %q", body.User.ID)
 	}
-
 	if body.TokenType != "Bearer" {
-		t.Fatalf(
-			"token type = %q, want Bearer",
-			body.TokenType,
-		)
+		t.Fatalf("token type = %q, want Bearer", body.TokenType)
+	}
+	if body.AccessToken != loginResult.AccessToken.Value() {
+		t.Fatal("response access token did not match")
+	}
+	if !body.RefreshTokenExpiresAt.Equal(loginResult.RefreshTokenExpiresAt) {
+		t.Fatal("response refresh-token expiration did not match")
 	}
 
-	if body.AccessToken !=
-		loginResult.AccessToken.Value() {
-		t.Fatal(
-			"response access token did not match",
-		)
+	config := sessioncookie.NewConfig(false)
+	cookies := recorder.Result().Cookies()
+	refreshCookie := handlerTestCookie(t, cookies, config.RefreshCookieName())
+	csrfCookie := handlerTestCookie(t, cookies, config.CSRFCookieName())
+	if refreshCookie.Value != loginResult.RefreshToken.Value() || !refreshCookie.HttpOnly {
+		t.Fatal("login did not set the HttpOnly refresh cookie")
 	}
-
-	if body.RefreshToken !=
-		loginResult.RefreshToken.Value() {
-		t.Fatal(
-			"response refresh token did not match",
-		)
+	if csrfCookie.Value == "" || csrfCookie.HttpOnly {
+		t.Fatal("login did not set a browser-readable CSRF cookie")
 	}
 
 	responseBody := recorder.Body.String()
-
-	if strings.Contains(
-		responseBody,
-		handlerTestPassword,
-	) ||
-		strings.Contains(
-			responseBody,
-			"password_hash",
-		) {
-		t.Fatal(
-			"login response exposed password material",
-		)
+	if strings.Contains(responseBody, handlerTestPassword) ||
+		strings.Contains(responseBody, "password_hash") ||
+		strings.Contains(responseBody, loginResult.RefreshToken.Value()) {
+		t.Fatal("login response exposed sensitive authentication material")
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("login response did not disable caching")
 	}
 }
 
@@ -258,114 +218,56 @@ func TestHandlerRefresh(t *testing.T) {
 	t.Parallel()
 
 	loginResult := newHandlerTestLoginResult(t)
-
 	refreshResult := session.RefreshResult{
 		AccessToken:           loginResult.AccessToken,
 		RefreshToken:          loginResult.RefreshToken,
 		RefreshTokenExpiresAt: loginResult.RefreshTokenExpiresAt,
 	}
-
-	service := &fakeAuthService{
-		refreshResult: refreshResult,
-	}
-
+	service := &fakeAuthService{refreshResult: refreshResult}
 	router := newTestRouter(service)
-
-	requestBody, err := json.Marshal(
-		refreshRequest{
-			RefreshToken: loginResult.RefreshToken.Value(),
-		},
-	)
-	if err != nil {
-		t.Fatalf(
-			"encode refresh request: %v",
-			err,
-		)
-	}
-
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/auth/refresh",
-		bytes.NewReader(requestBody),
-	)
-
-	request.Header.Set(
-		"Content-Type",
-		"application/json",
-	)
+	request := newHandlerRefreshRequest(t, loginResult.RefreshToken.Value())
 
 	recorder := httptest.NewRecorder()
-
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
-		t.Fatalf(
-			"status = %d, want %d",
-			recorder.Code,
-			http.StatusOK,
-		)
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-
 	if service.refreshCalls != 1 {
-		t.Fatalf(
-			"Refresh() calls = %d, want 1",
-			service.refreshCalls,
-		)
+		t.Fatalf("Refresh() calls = %d, want 1", service.refreshCalls)
 	}
-
-	if service.lastRefreshInput.RefreshToken !=
-		loginResult.RefreshToken.Value() {
-		t.Fatal(
-			"refresh input did not contain the submitted token",
-		)
+	if service.lastRefreshInput.RefreshToken != loginResult.RefreshToken.Value() {
+		t.Fatal("refresh input did not contain the cookie token")
 	}
 
 	var body refreshResponse
-
-	if err := json.NewDecoder(
-		recorder.Body,
-	).Decode(&body); err != nil {
-		t.Fatalf(
-			"failed to decode refresh response: %v",
-			err,
-		)
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode refresh response: %v", err)
 	}
-
 	if body.TokenType != "Bearer" {
-		t.Fatalf(
-			"token type = %q, want Bearer",
-			body.TokenType,
-		)
+		t.Fatalf("token type = %q, want Bearer", body.TokenType)
+	}
+	if body.AccessToken != refreshResult.AccessToken.Value() {
+		t.Fatal("response access token did not match")
+	}
+	if !body.AccessTokenExpiresAt.Equal(refreshResult.AccessToken.ExpiresAt()) {
+		t.Fatal("response access-token expiration did not match")
+	}
+	if !body.RefreshTokenExpiresAt.Equal(refreshResult.RefreshTokenExpiresAt) {
+		t.Fatal("response refresh-token expiration did not match")
 	}
 
-	if body.AccessToken !=
-		refreshResult.AccessToken.Value() {
-		t.Fatal(
-			"response access token did not match",
-		)
+	config := sessioncookie.NewConfig(false)
+	cookies := recorder.Result().Cookies()
+	refreshCookie := handlerTestCookie(t, cookies, config.RefreshCookieName())
+	if refreshCookie.Value != refreshResult.RefreshToken.Value() {
+		t.Fatal("refresh did not rotate the refresh cookie")
 	}
-
-	if body.RefreshToken !=
-		refreshResult.RefreshToken.Value() {
-		t.Fatal(
-			"response refresh token did not match",
-		)
+	if strings.Contains(recorder.Body.String(), refreshResult.RefreshToken.Value()) {
+		t.Fatal("refresh response exposed the replacement refresh token")
 	}
-
-	if !body.AccessTokenExpiresAt.Equal(
-		refreshResult.AccessToken.ExpiresAt(),
-	) {
-		t.Fatal(
-			"response access-token expiration did not match",
-		)
-	}
-
-	if !body.RefreshTokenExpiresAt.Equal(
-		refreshResult.RefreshTokenExpiresAt,
-	) {
-		t.Fatal(
-			"response refresh-token expiration did not match",
-		)
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("refresh response did not disable caching")
 	}
 }
 
@@ -634,94 +536,99 @@ func TestHandlerMapsAuthenticationFailureSafely(
 	}
 }
 
-func TestHandlerMapsInvalidRefreshTokenGenerically(
-	t *testing.T,
-) {
+func TestHandlerMapsInvalidRefreshTokenGenerically(t *testing.T) {
 	t.Parallel()
 
-	service := &fakeAuthService{
-		refreshErr: session.ErrRefreshTokenInvalid,
-	}
-
+	service := &fakeAuthService{refreshErr: session.ErrRefreshTokenInvalid}
 	router := newTestRouter(service)
-
-	request := newJSONRequest(
-		http.MethodPost,
-		"/v1/auth/refresh",
-		`{
-			"refreshToken": "synthetic-invalid-refresh-token"
-		}`,
-	)
-
+	request := newHandlerRefreshRequest(t, "synthetic-invalid-refresh-token")
 	recorder := httptest.NewRecorder()
 
 	router.ServeHTTP(recorder, request)
 
-	assertErrorResponse(
-		t,
-		recorder,
-		http.StatusUnauthorized,
-		"invalid_refresh_token",
-	)
-
+	assertErrorResponse(t, recorder, http.StatusUnauthorized, "invalid_refresh_token")
 	responseBody := recorder.Body.String()
+	if strings.Contains(responseBody, "replay") ||
+		strings.Contains(responseBody, "revoked") ||
+		strings.Contains(responseBody, "disabled") ||
+		strings.Contains(responseBody, "database") {
+		t.Fatal("refresh response exposed internal token state")
+	}
 
-	if strings.Contains(
-		responseBody,
-		"replay",
-	) ||
-		strings.Contains(
-			responseBody,
-			"revoked",
-		) ||
-		strings.Contains(
-			responseBody,
-			"disabled",
-		) ||
-		strings.Contains(
-			responseBody,
-			"database",
-		) {
-		t.Fatal(
-			"refresh response exposed internal token state",
-		)
+	config := sessioncookie.NewConfig(false)
+	cookies := recorder.Result().Cookies()
+	if handlerTestCookie(t, cookies, config.RefreshCookieName()).MaxAge != -1 {
+		t.Fatal("invalid refresh did not clear the refresh cookie")
+	}
+	if handlerTestCookie(t, cookies, config.CSRFCookieName()).MaxAge != -1 {
+		t.Fatal("invalid refresh did not clear the CSRF cookie")
 	}
 }
 
-func TestHandlerMapsRefreshDependencyFailureSafely(
-	t *testing.T,
-) {
+func TestHandlerMapsRefreshDependencyFailureSafely(t *testing.T) {
 	t.Parallel()
 
-	service := &fakeAuthService{
-		refreshErr: session.ErrSessionUnavailable,
-	}
-
+	service := &fakeAuthService{refreshErr: session.ErrSessionUnavailable}
 	router := newTestRouter(service)
-
-	request := newJSONRequest(
-		http.MethodPost,
-		"/v1/auth/refresh",
-		`{
-			"refreshToken": "synthetic-refresh-token"
-		}`,
-	)
-
+	request := newHandlerRefreshRequest(t, "synthetic-refresh-token")
 	recorder := httptest.NewRecorder()
 
 	router.ServeHTTP(recorder, request)
 
-	assertErrorResponse(
-		t,
-		recorder,
-		http.StatusServiceUnavailable,
-		"authentication_unavailable",
-	)
+	assertErrorResponse(t, recorder, http.StatusServiceUnavailable, "authentication_unavailable")
 }
 
-func TestHandlerRefreshRejectsUnknownRequestFields(
-	t *testing.T,
-) {
+func TestHandlerRefreshRejectsMissingCSRF(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeAuthService{}
+	router := newTestRouter(service)
+	config := sessioncookie.NewConfig(false)
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{
+		Name:  config.RefreshCookieName(),
+		Value: "synthetic-refresh-token",
+	})
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(t, recorder, http.StatusForbidden, "csrf_validation_failed")
+	if service.refreshCalls != 0 {
+		t.Fatalf("Refresh() calls = %d, want 0", service.refreshCalls)
+	}
+}
+
+func newHandlerRefreshRequest(t *testing.T, refreshToken string) *http.Request {
+	t.Helper()
+
+	config := sessioncookie.NewConfig(false)
+	csrfToken, err := sessioncookie.NewCSRFTokenGenerator().Generate(context.Background())
+	if err != nil {
+		t.Fatalf("generate CSRF token: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{Name: config.RefreshCookieName(), Value: refreshToken})
+	request.AddCookie(&http.Cookie{Name: config.CSRFCookieName(), Value: csrfToken.Value()})
+	request.Header.Set(config.CSRFHeaderName(), csrfToken.Value())
+	return request
+}
+
+func handlerTestCookie(t *testing.T, cookies []*http.Cookie, name string) *http.Cookie {
+	t.Helper()
+
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+
+	t.Fatalf("cookie %q was not found", name)
+	return nil
+}
+
+func TestHandlerRefreshRejectsNonEmptyBody(t *testing.T) {
 	t.Parallel()
 
 	service := &fakeAuthService{}
@@ -730,14 +637,10 @@ func TestHandlerRefreshRejectsUnknownRequestFields(
 	request := newJSONRequest(
 		http.MethodPost,
 		"/v1/auth/refresh",
-		`{
-			"refreshToken": "synthetic-refresh-token",
-			"userID": "user-controlled-value"
-		}`,
+		`{"refreshToken":"not-accepted-here"}`,
 	)
 
 	recorder := httptest.NewRecorder()
-
 	router.ServeHTTP(recorder, request)
 
 	assertErrorResponse(
@@ -748,10 +651,11 @@ func TestHandlerRefreshRejectsUnknownRequestFields(
 	)
 
 	if service.refreshCalls != 0 {
-		t.Fatalf(
-			"Refresh() calls = %d, want 0",
-			service.refreshCalls,
-		)
+		t.Fatalf("Refresh() calls = %d, want 0", service.refreshCalls)
+	}
+
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatal("malformed refresh request unexpectedly changed browser cookies")
 	}
 }
 
@@ -761,6 +665,7 @@ func newTestRouter(
 	handler := New(
 		service,
 		service,
+		sessioncookie.NewManager(sessioncookie.NewConfig(false)),
 		zap.NewNop().Sugar(),
 	)
 

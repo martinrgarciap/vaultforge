@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/request"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/response"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
@@ -38,6 +39,7 @@ type SessionService interface {
 type Handler struct {
 	registrationService RegistrationService
 	sessionService      SessionService
+	sessionCookies      *sessioncookie.Manager
 	logger              *zap.SugaredLogger
 }
 
@@ -55,30 +57,26 @@ type loginResponse struct {
 	TokenType             string       `json:"tokenType"`
 	AccessToken           string       `json:"accessToken"`
 	AccessTokenExpiresAt  time.Time    `json:"accessTokenExpiresAt"`
-	RefreshToken          string       `json:"refreshToken"`
 	RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
-}
-
-type refreshRequest struct {
-	RefreshToken string `json:"refreshToken"`
 }
 
 type refreshResponse struct {
 	TokenType             string    `json:"tokenType"`
 	AccessToken           string    `json:"accessToken"`
 	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
-	RefreshToken          string    `json:"refreshToken"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 
 func New(
 	registrationService RegistrationService,
 	sessionService SessionService,
+	sessionCookies *sessioncookie.Manager,
 	logger *zap.SugaredLogger,
 ) *Handler {
 	return &Handler{
 		registrationService: registrationService,
 		sessionService:      sessionService,
+		sessionCookies:      sessionCookies,
 		logger:              logger,
 	}
 }
@@ -143,8 +141,9 @@ func (handler *Handler) Login(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if handler == nil ||
-		handler.sessionService == nil {
+	setNoStore(w)
+
+	if handler == nil || handler.sessionService == nil || handler.sessionCookies == nil {
 		handler.writeError(
 			w,
 			r,
@@ -158,15 +157,15 @@ func (handler *Handler) Login(
 
 	var requestBody credentialsRequest
 
-	err := request.DecodeJSON(
-		w,
-		r,
-		&requestBody,
-		maxAuthRequestBodyBytes,
-	)
+	err := request.DecodeJSON(w, r, &requestBody, maxAuthRequestBodyBytes)
 	if err != nil {
 		handler.writeDecodeError(w, r, err)
+		return
+	}
 
+	csrfToken, err := handler.sessionCookies.GenerateCSRFToken(r.Context())
+	if err != nil {
+		handler.writeCookieTransportError(w, r)
 		return
 	}
 
@@ -180,7 +179,16 @@ func (handler *Handler) Login(
 	)
 	if err != nil {
 		handler.writeLoginError(w, r, err)
+		return
+	}
 
+	if err := handler.sessionCookies.Set(
+		w,
+		result.RefreshToken.Value(),
+		csrfToken,
+		result.RefreshTokenExpiresAt,
+	); err != nil {
+		handler.writeCookieTransportError(w, r)
 		return
 	}
 
@@ -192,7 +200,6 @@ func (handler *Handler) Login(
 			TokenType:             "Bearer",
 			AccessToken:           result.AccessToken.Value(),
 			AccessTokenExpiresAt:  result.AccessToken.ExpiresAt(),
-			RefreshToken:          result.RefreshToken.Value(),
 			RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
 		},
 	); err != nil {
@@ -204,8 +211,9 @@ func (handler *Handler) Refresh(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if handler == nil ||
-		handler.sessionService == nil {
+	setNoStore(w)
+
+	if handler == nil || handler.sessionService == nil || handler.sessionCookies == nil {
 		handler.writeError(
 			w,
 			r,
@@ -217,29 +225,64 @@ func (handler *Handler) Refresh(
 		return
 	}
 
-	var requestBody refreshRequest
+	if err := request.RequireEmptyBody(w, r); err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusBadRequest,
+			"invalid_request",
+			"The refresh request must not contain a body.",
+		)
 
-	err := request.DecodeJSON(
-		w,
-		r,
-		&requestBody,
-		maxAuthRequestBodyBytes,
-	)
+		return
+	}
+
+	refreshToken, err := handler.sessionCookies.RefreshToken(r)
 	if err != nil {
-		handler.writeDecodeError(w, r, err)
+		handler.sessionCookies.Clear(w)
+		handler.writeError(
+			w,
+			r,
+			http.StatusUnauthorized,
+			"invalid_refresh_token",
+			"The refresh token is invalid or expired.",
+		)
+		return
+	}
 
+	if err := handler.sessionCookies.ValidateCSRF(r); err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusForbidden,
+			"csrf_validation_failed",
+			"The CSRF token is missing or invalid.",
+		)
+		return
+	}
+
+	csrfToken, err := handler.sessionCookies.GenerateCSRFToken(r.Context())
+	if err != nil {
+		handler.writeCookieTransportError(w, r)
 		return
 	}
 
 	result, err := handler.sessionService.Refresh(
 		r.Context(),
-		session.RefreshInput{
-			RefreshToken: requestBody.RefreshToken,
-		},
+		session.RefreshInput{RefreshToken: refreshToken},
 	)
 	if err != nil {
 		handler.writeRefreshError(w, r, err)
+		return
+	}
 
+	if err := handler.sessionCookies.Set(
+		w,
+		result.RefreshToken.Value(),
+		csrfToken,
+		result.RefreshTokenExpiresAt,
+	); err != nil {
+		handler.writeCookieTransportError(w, r)
 		return
 	}
 
@@ -250,7 +293,6 @@ func (handler *Handler) Refresh(
 			TokenType:             "Bearer",
 			AccessToken:           result.AccessToken.Value(),
 			AccessTokenExpiresAt:  result.AccessToken.ExpiresAt(),
-			RefreshToken:          result.RefreshToken.Value(),
 			RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
 		},
 	); err != nil {
@@ -407,6 +449,7 @@ func (handler *Handler) writeRefreshError(
 		err,
 		session.ErrRefreshTokenInvalid,
 	):
+		handler.sessionCookies.Clear(w)
 		handler.writeError(
 			w,
 			r,
@@ -435,6 +478,23 @@ func (handler *Handler) writeRefreshError(
 			"An unexpected error occurred.",
 		)
 	}
+}
+
+func (handler *Handler) writeCookieTransportError(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	handler.writeError(
+		w,
+		r,
+		http.StatusServiceUnavailable,
+		"authentication_unavailable",
+		"Authentication is temporarily unavailable.",
+	)
+}
+
+func setNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
 }
 
 func (handler *Handler) writeError(

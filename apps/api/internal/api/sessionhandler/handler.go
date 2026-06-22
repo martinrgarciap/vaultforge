@@ -10,6 +10,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/response"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 )
@@ -39,6 +40,7 @@ type SessionService interface {
 
 type Handler struct {
 	sessionService SessionService
+	sessionCookies *sessioncookie.Manager
 	logger         *zap.SugaredLogger
 }
 
@@ -56,10 +58,12 @@ type listSessionsResponse struct {
 
 func New(
 	sessionService SessionService,
+	sessionCookies *sessioncookie.Manager,
 	logger *zap.SugaredLogger,
 ) *Handler {
 	return &Handler{
 		sessionService: sessionService,
+		sessionCookies: sessionCookies,
 		logger:         logger,
 	}
 }
@@ -130,6 +134,7 @@ func (handler *Handler) LogoutCurrent(
 		return
 	}
 
+	handler.sessionCookies.Clear(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -142,14 +147,15 @@ func (handler *Handler) Revoke(
 		return
 	}
 
-	err := handler.sessionService.RevokeSession(
-		r.Context(),
-		principal,
-		chi.URLParam(r, "sessionID"),
-	)
+	sessionID := chi.URLParam(r, "sessionID")
+	err := handler.sessionService.RevokeSession(r.Context(), principal, sessionID)
 	if err != nil {
 		handler.writeServiceError(w, r, err)
 		return
+	}
+
+	if sessionID == principal.SessionID {
+		handler.sessionCookies.Clear(w)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -164,15 +170,13 @@ func (handler *Handler) LogoutAll(
 		return
 	}
 
-	err := handler.sessionService.LogoutAll(
-		r.Context(),
-		principal,
-	)
+	err := handler.sessionService.LogoutAll(r.Context(), principal)
 	if err != nil {
 		handler.writeServiceError(w, r, err)
 		return
 	}
 
+	handler.sessionCookies.Clear(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 

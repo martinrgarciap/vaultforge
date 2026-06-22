@@ -33,3 +33,10 @@ claude.md
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Frontend dependencies and build artifacts
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/

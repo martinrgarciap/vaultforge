@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -25,7 +26,8 @@ type authenticationRefreshResponse struct {
 	TokenType             string    `json:"tokenType"`
 	AccessToken           string    `json:"accessToken"`
 	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
-	RefreshToken          string    `json:"refreshToken"`
+	RefreshToken          string    `json:"-"`
+	CSRFToken             string    `json:"-"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 
@@ -120,12 +122,12 @@ func TestAuthenticationRefreshRotationAndReplayIntegration(t *testing.T) {
 		)
 	}
 
-	refreshRecorder :=
-		performAuthenticationRefreshRequest(
-			t,
-			router,
-			loginResponse.RefreshToken,
-		)
+	refreshRecorder := performAuthenticationRefreshRequest(
+		t,
+		router,
+		loginResponse.RefreshToken,
+		loginResponse.CSRFToken,
+	)
 
 	if refreshRecorder.Code != http.StatusOK {
 		t.Fatalf(
@@ -145,6 +147,20 @@ func TestAuthenticationRefreshRotationAndReplayIntegration(t *testing.T) {
 			err,
 		)
 	}
+
+	cookieConfig := sessioncookie.NewConfig(false)
+
+	refreshResponse.RefreshToken = authenticationResponseCookieValue(
+		t,
+		refreshRecorder,
+		cookieConfig.RefreshCookieName(),
+	)
+
+	refreshResponse.CSRFToken = authenticationResponseCookieValue(
+		t,
+		refreshRecorder,
+		cookieConfig.CSRFCookieName(),
+	)
 
 	if refreshResponse.TokenType != "Bearer" {
 		t.Fatalf(
@@ -170,6 +186,14 @@ func TestAuthenticationRefreshRotationAndReplayIntegration(t *testing.T) {
 		t.Fatal(
 			"refresh returned the presented refresh token instead of a replacement",
 		)
+	}
+
+	if refreshResponse.CSRFToken == "" {
+		t.Fatal("refresh response did not include a replacement CSRF cookie")
+	}
+
+	if refreshResponse.CSRFToken == loginResponse.CSRFToken {
+		t.Fatal("refresh did not rotate the CSRF cookie")
 	}
 
 	if refreshResponse.AccessTokenExpiresAt.IsZero() {
@@ -389,12 +413,12 @@ func TestAuthenticationRefreshRotationAndReplayIntegration(t *testing.T) {
 		)
 	}
 
-	replayRecorder :=
-		performAuthenticationRefreshRequest(
-			t,
-			router,
-			loginResponse.RefreshToken,
-		)
+	replayRecorder := performAuthenticationRefreshRequest(
+		t,
+		router,
+		loginResponse.RefreshToken,
+		loginResponse.CSRFToken,
+	)
 
 	replayError := decodeAuthenticationRefreshError(
 		t,
@@ -410,12 +434,12 @@ func TestAuthenticationRefreshRotationAndReplayIntegration(t *testing.T) {
 		)
 	}
 
-	replacementAfterReplayRecorder :=
-		performAuthenticationRefreshRequest(
-			t,
-			router,
-			refreshResponse.RefreshToken,
-		)
+	replacementAfterReplayRecorder := performAuthenticationRefreshRequest(
+		t,
+		router,
+		refreshResponse.RefreshToken,
+		refreshResponse.CSRFToken,
+	)
 
 	replacementAfterReplayError :=
 		decodeAuthenticationRefreshError(
@@ -563,12 +587,12 @@ func TestAuthenticationRefreshRevokesFamilyWhenAccessTokenIssuanceFails(
 		)
 	}
 
-	refreshRecorder :=
-		performAuthenticationRefreshRequest(
-			t,
-			router,
-			loginResponse.RefreshToken,
-		)
+	refreshRecorder := performAuthenticationRefreshRequest(
+		t,
+		router,
+		loginResponse.RefreshToken,
+		loginResponse.CSRFToken,
+	)
 
 	errorResponse := decodeAuthenticationRefreshError(
 		t,
@@ -786,6 +810,20 @@ func registerAndLoginAuthenticationRefreshUser(
 		)
 	}
 
+	cookieConfig := sessioncookie.NewConfig(false)
+
+	loginResponse.RefreshToken = authenticationResponseCookieValue(
+		t,
+		loginRecorder,
+		cookieConfig.RefreshCookieName(),
+	)
+
+	loginResponse.CSRFToken = authenticationResponseCookieValue(
+		t,
+		loginRecorder,
+		cookieConfig.CSRFCookieName(),
+	)
+
 	return accountResponse, loginResponse
 }
 
@@ -793,38 +831,22 @@ func performAuthenticationRefreshRequest(
 	t *testing.T,
 	router http.Handler,
 	refreshToken string,
+	csrfToken string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	requestBody, err := json.Marshal(
-		struct {
-			RefreshToken string `json:"refreshToken"`
-		}{
-			RefreshToken: refreshToken,
-		},
-	)
-	if err != nil {
-		t.Fatalf(
-			"encode refresh request: %v",
-			err,
-		)
-	}
-
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/auth/refresh",
-		strings.NewReader(string(requestBody)),
-	)
-
-	request.Header.Set(
-		"Content-Type",
-		"application/json",
-	)
-
-	request.Header.Set(
-		"User-Agent",
-		authIntegrationUserAgent,
-	)
+	cookieConfig := sessioncookie.NewConfig(false)
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{
+		Name:  cookieConfig.RefreshCookieName(),
+		Value: refreshToken,
+	})
+	request.AddCookie(&http.Cookie{
+		Name:  cookieConfig.CSRFCookieName(),
+		Value: csrfToken,
+	})
+	request.Header.Set(cookieConfig.CSRFHeaderName(), csrfToken)
+	request.Header.Set("User-Agent", authIntegrationUserAgent)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)

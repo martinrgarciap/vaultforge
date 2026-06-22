@@ -4,6 +4,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/authhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/itemhandler"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessionhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/vaulthandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
@@ -31,6 +32,8 @@ func NewApplication(
 	vaultService vaulthandler.VaultService,
 	itemService itemhandler.ItemService,
 ) *Application {
+	sessionCookies := sessioncookie.NewManager(cfg.SessionCookies)
+
 	return &Application{
 		config: cfg,
 		logger: logger,
@@ -41,20 +44,16 @@ func NewApplication(
 		authHandler: authhandler.New(
 			authService,
 			sessionService,
+			sessionCookies,
 			logger,
 		),
 		sessionService: sessionService,
 		sessionHandler: sessionhandler.New(
 			sessionService,
+			sessionCookies,
 			logger,
 		),
-		vaultHandler: vaulthandler.New(
-			vaultService,
-			logger,
-		),
-		itemHandler: itemhandler.New(
-			itemService,
-			logger,
-		),
+		vaultHandler: vaulthandler.New(vaultService, logger),
+		itemHandler:  itemhandler.New(itemService, logger),
 	}
 }

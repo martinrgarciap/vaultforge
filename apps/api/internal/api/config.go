@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
 
@@ -17,10 +18,11 @@ const (
 )
 
 type Config struct {
-	Env         string
-	Addr        string
-	DatabaseURL string
-	Tokens      session.TokenConfig
+	Env            string
+	Addr           string
+	DatabaseURL    string
+	Tokens         session.TokenConfig
+	SessionCookies sessioncookie.Config
 }
 
 func LoadConfig() (Config, error) {
@@ -52,6 +54,9 @@ func LoadConfig() (Config, error) {
 	}
 
 	cfg.Tokens = tokenConfig
+	cfg.SessionCookies = sessioncookie.NewConfig(
+		cfg.Env == "production",
+	)
 
 	return cfg, nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 )
@@ -319,6 +320,7 @@ func newHandlerTestRouter(
 ) http.Handler {
 	handler := New(
 		service,
+		sessioncookie.NewManager(sessioncookie.NewConfig(false)),
 		zap.NewNop().Sugar(),
 	)
 

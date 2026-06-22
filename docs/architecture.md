@@ -22,6 +22,7 @@ flowchart LR
     C[API Client or Thunder Client]
     A[Go API]
     AH[Authentication Handler]
+    SC[Session Cookie Manager]
     SH[Session Handler]
     VH[Vault Handler]
     IH[Item Handler]
@@ -34,12 +35,14 @@ flowchart LR
     P[(PostgreSQL)]
     O[(Transactional Outbox)]
 
-    C -->|HTTP and JSON| A
+    C -->|HTTP, JSON, and cookies| A
     A --> AH
     A --> M
     M --> SH
     M --> VH
     M --> IH
+    AH --> SC
+    SH --> SC
     AH --> AS
     AH --> SS
     SH --> SS
@@ -57,8 +60,10 @@ flowchart LR
 
 ### Public authentication requests
 
+Registration and login:
+
 ```text
-HTTP request
+HTTP JSON request
     ↓
 Chi router
     ↓
@@ -76,6 +81,29 @@ Authentication or session service
     └── SessionStore
           ↓
       PostgreSQL
+```
+
+Login returns the access token and expiration metadata in JSON. It delivers the refresh token through an `HttpOnly` cookie and a separate readable CSRF cookie.
+
+Refresh:
+
+```text
+Bodyless HTTP request
+    ├── HttpOnly refresh cookie
+    ├── Readable CSRF cookie
+    └── X-CSRF-Token header
+          ↓
+      Session cookie manager
+          ├── Require exactly one refresh cookie
+          ├── Require exactly one CSRF cookie and header
+          └── Compare CSRF values
+                ↓
+            Session service
+                ├── Rotate the refresh-token digest
+                ├── Preserve absolute family expiration
+                └── Issue a new access token
+                      ↓
+                  Rotate both browser cookies
 ```
 
 ### Protected session, vault, and item requests
@@ -124,6 +152,9 @@ PostgreSQL transaction
 - Calls the replaceable password hasher.
 - Issues and verifies Ed25519 access tokens.
 - Generates and rotates opaque refresh tokens.
+- Delivers refresh tokens through host-only `HttpOnly`, `SameSite=Strict` cookies.
+- Enforces double-submit CSRF protection for bodyless refresh requests.
+- Rotates and clears browser session cookies.
 - Enforces active-session checks for protected requests.
 - Exposes liveness and database-backed readiness routes.
 - Logs safe request metadata only.
@@ -151,6 +182,16 @@ The local adapter is temporary. It exists so the authentication contract can be 
 - Rejects malformed, expired, incorrectly signed, or incorrectly configured tokens.
 - Never stores access tokens in PostgreSQL.
 - Redacts token and manager values when formatted.
+
+### Session cookie manager
+
+- Issues the host-only refresh cookie with `HttpOnly`, `SameSite=Strict`, and `Path=/v1/auth/refresh`.
+- Issues a separate readable CSRF cookie with `SameSite=Strict` and `Path=/`.
+- Enables the `Secure` flag in production and permits local HTTP in development and test.
+- Requires exactly one refresh cookie, CSRF cookie, and `X-CSRF-Token` header.
+- Parses and compares CSRF values without exposing them through formatting.
+- Rotates both cookies after successful refresh.
+- Clears both cookies after current-session logout, current-session revocation, logout-all, or invalid refresh credentials.
 
 ### Session service
 
@@ -219,9 +260,10 @@ sequenceDiagram
     participant H as PasswordHasher
     participant SS as Session Service
     participant T as Token Manager
+    participant SC as Session Cookie Manager
     participant P as PostgreSQL
 
-    C->>A: POST /v1/auth/login
+    C->>A: POST /v1/auth/login with JSON credentials
     A->>AS: Email and account password
     AS->>P: Find normalized email
     P-->>AS: User and encoded hash
@@ -233,8 +275,10 @@ sequenceDiagram
     P-->>SS: Session ID, family ID, timestamps
     SS->>T: Issue Ed25519 access token
     T-->>SS: Access token
-    SS-->>A: Account, access token, refresh token
-    A-->>C: 200 OK
+    SS-->>A: Account, access token, raw refresh token, expiration
+    A->>SC: Issue refresh and CSRF cookies
+    SC-->>C: HttpOnly refresh cookie and readable CSRF cookie
+    A-->>C: 200 JSON with access token and expiration metadata
 ```
 
 Unknown emails, incorrect passwords, invalid login input, and disabled accounts produce the same public credentials error.
@@ -243,17 +287,23 @@ Unknown accounts also consume password-hashing work to reduce obvious timing dif
 
 If access-token issuance fails after session creation, the newly created token family is revoked.
 
+Login responses use `Cache-Control: no-store`. The refresh token is never included in the JSON response.
+
 ## Current refresh flow
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant A as Go API
+    participant SC as Session Cookie Manager
     participant SS as Session Service
     participant T as Token Manager
     participant P as PostgreSQL
 
-    C->>A: POST /v1/auth/refresh
+    C->>A: POST /v1/auth/refresh with no body
+    Note over C,A: Refresh cookie, CSRF cookie, and X-CSRF-Token header
+    A->>SC: Read refresh cookie and validate CSRF pair
+    SC-->>A: Raw refresh token
     A->>SS: Opaque refresh token
     SS->>SS: Parse and SHA-256 digest token
     SS->>SS: Generate replacement refresh token
@@ -261,15 +311,21 @@ sequenceDiagram
     P-->>SS: User ID, family ID, preserved expiration
     SS->>T: Issue new access token
     T-->>SS: Access token
-    SS-->>A: New access token and refresh token
-    A-->>C: 200 OK
+    SS-->>A: New access token and replacement refresh token
+    A->>SC: Rotate refresh and CSRF cookies
+    SC-->>C: Replacement cookies
+    A-->>C: 200 JSON with new access token and expiration metadata
 ```
 
 A successful refresh revokes the submitted refresh-token row and inserts the replacement in the same family.
 
+The request body must be empty. The CSRF cookie and `X-CSRF-Token` header must be present exactly once and must match.
+
 Reusing a previously rotated refresh token triggers family-wide revocation.
 
-Invalid, expired, revoked, replayed, malformed, and disabled-user refresh states return the same public `invalid_refresh_token` response.
+Invalid, expired, revoked, replayed, malformed, and disabled-user refresh states return the same public `invalid_refresh_token` response and clear stale browser cookies.
+
+Refresh responses use `Cache-Control: no-store`. Replacement refresh tokens are never included in JSON.
 
 ## Current protected-request flow
 
@@ -320,6 +376,8 @@ Ownership is enforced by querying with both:
 - Requested token-family ID
 
 Unknown, already-revoked, and other users’ session identifiers return the same public `session_not_found` result.
+
+Logout of the current session, revocation of the current session by ID, and logout of all sessions clear the browser refresh and CSRF cookies. Revoking a different owned session leaves the current browser cookies unchanged.
 
 ## Current vault and item workflow
 
@@ -387,8 +445,11 @@ flowchart LR
 Planned responsibilities:
 
 - Collect the account password during authentication.
-- Store the refresh token in a secure browser cookie after frontend integration.
-- Apply CSRF protection to cookie-authenticated requests.
+- Keep access tokens in memory only.
+- Rely on the server-issued `HttpOnly` refresh cookie.
+- Read the separate CSRF cookie and send it through `X-CSRF-Token`.
+- Coordinate one shared refresh request when concurrent API calls receive `401` responses.
+- Retry each failed protected request at most once after refresh.
 - Collect the separate vault master passphrase during vault unlock.
 - Derive and unwrap vault encryption keys through Rust WebAssembly.
 - Encrypt vault items before upload.
@@ -500,11 +561,15 @@ Completed:
 - Idempotent item creation
 - Optimistic concurrency with `ETag` and `If-Match`
 - Sanitized transactional outbox integration
+- Browser-safe refresh cookies and CSRF protection
+- Bodyless refresh requests and cookie rotation
 - Unit, route, service, store, and real PostgreSQL integration tests
 
 Next:
 
-- Complete the Step 6 documentation and CI checkpoint
-- Begin Redis-backed rate limiting, lockouts, and reliability controls
+- Build the minimal React and TypeScript client
+- Keep access tokens in memory
+- Implement automatic cookie-based refresh
+- Exercise the complete session, vault, and item HTTP surface
 
-Later phases add a minimal client, RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.
+Later phases add Redis reliability controls, RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.

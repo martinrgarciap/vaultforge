@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
@@ -54,7 +55,8 @@ type authenticationLoginResponse struct {
 	TokenType             string       `json:"tokenType"`
 	AccessToken           string       `json:"accessToken"`
 	AccessTokenExpiresAt  time.Time    `json:"accessTokenExpiresAt"`
-	RefreshToken          string       `json:"refreshToken"`
+	RefreshToken          string       `json:"-"`
+	CSRFToken             string       `json:"-"`
 	RefreshTokenExpiresAt time.Time    `json:"refreshTokenExpiresAt"`
 }
 
@@ -231,6 +233,20 @@ func TestAuthenticationHTTPFlowIntegration(
 		)
 	}
 
+	cookieConfig := sessioncookie.NewConfig(false)
+
+	loginResponse.RefreshToken = authenticationResponseCookieValue(
+		t,
+		loginRecorder,
+		cookieConfig.RefreshCookieName(),
+	)
+
+	loginResponse.CSRFToken = authenticationResponseCookieValue(
+		t,
+		loginRecorder,
+		cookieConfig.CSRFCookieName(),
+	)
+
 	if loginResponse.User.ID !=
 		registerResponse.User.ID {
 		t.Fatalf(
@@ -265,6 +281,10 @@ func TestAuthenticationHTTPFlowIntegration(
 		t.Fatal(
 			"login response did not include a refresh token",
 		)
+	}
+
+	if loginResponse.CSRFToken == "" {
+		t.Fatal("login response did not include a CSRF cookie")
 	}
 
 	if loginResponse.AccessTokenExpiresAt.IsZero() {
@@ -863,6 +883,27 @@ func TestAuthenticationAndHealthRoutesIntegration(
 			http.StatusCreated,
 		)
 	}
+}
+
+func authenticationResponseCookieValue(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	name string,
+) string {
+	t.Helper()
+
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == name {
+			if cookie.Value == "" {
+				t.Fatalf("cookie %q was empty", name)
+			}
+
+			return cookie.Value
+		}
+	}
+
+	t.Fatalf("cookie %q was not found", name)
+	return ""
 }
 
 func newAuthenticationIntegrationApplication(
