@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 API_DIR := apps/api
+WEB_DIR := apps/web
 COMPOSE_FILE := deployments/compose.yaml
 MIGRATIONS_DIR := apps/api/migrations
 
@@ -11,13 +12,29 @@ POSTGRES_TEST_DATABASE := vaultforge_test
 
 .PHONY: \
 	setup \
+	setup-api \
+	setup-web \
 	dev \
+	dev-api \
+	dev-web \
 	test \
+	test-api \
+	test-web \
 	lint \
+	lint-api \
+	lint-web \
 	format \
+	format-api \
+	format-web \
 	format-check \
+	format-check-api \
+	format-check-web \
+	typecheck-web \
+	build-web \
 	mod-verify \
 	verify \
+	verify-api \
+	verify-web \
 	compose-up \
 	compose-stop \
 	compose-down \
@@ -31,31 +48,71 @@ POSTGRES_TEST_DATABASE := vaultforge_test
 	migrate-down \
 	migrate-version
 
-setup:
+setup: setup-api setup-web
+
+setup-api:
 	cd $(API_DIR) && go mod download
 
-dev:
+setup-web:
+	cd $(WEB_DIR) && npm ci
+
+dev: dev-api
+
+dev-api:
 	cd $(API_DIR) && go run ./cmd/api
 
-test:
+dev-web:
+	cd $(WEB_DIR) && npm run dev
+
+test: test-api test-web
+
+test-api:
 	@test -n "$$TEST_DATABASE_URL" || \
 		(echo "TEST_DATABASE_URL is required" && exit 1)
 	cd $(API_DIR) && go test -race -count=1 ./...
 
-lint:
+test-web:
+	cd $(WEB_DIR) && npm run test
+
+lint: lint-api lint-web
+
+lint-api:
 	cd $(API_DIR) && go vet ./...
 	cd $(API_DIR) && staticcheck ./...
 
-format:
+lint-web:
+	cd $(WEB_DIR) && npm run lint
+
+format: format-api format-web
+
+format-api:
 	cd $(API_DIR) && gofmt -w .
 
-format-check:
+format-web:
+	cd $(WEB_DIR) && npm run format
+
+format-check: format-check-api format-check-web
+
+format-check-api:
 	test -z "$$(gofmt -l $(API_DIR))"
+
+format-check-web:
+	cd $(WEB_DIR) && npm run format:check
+
+typecheck-web:
+	cd $(WEB_DIR) && npm run typecheck
+
+build-web:
+	cd $(WEB_DIR) && npm run build
 
 mod-verify:
 	cd $(API_DIR) && go mod verify
 
-verify: format-check mod-verify lint test
+verify: verify-api verify-web
+
+verify-api: format-check-api mod-verify lint-api test-api
+
+verify-web: format-check-web lint-web typecheck-web test-web build-web
 
 compose-up:
 	docker compose -f $(COMPOSE_FILE) up -d $(POSTGRES_SERVICE)
