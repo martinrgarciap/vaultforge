@@ -2,12 +2,29 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { AuthContext } from "../auth/AuthContext";
+import type { AuthContextValue } from "../auth/types";
 import { AppRoutes } from "./AppRoutes";
+
+const testAuthValue: AuthContextValue = {
+  status: "unauthenticated",
+  account: null,
+  register: async () => {
+    throw new Error("Unexpected registration call.");
+  },
+  login: async () => {
+    throw new Error("Unexpected login call.");
+  },
+  logout: async () => undefined,
+  request: async <T,>() => undefined as T,
+};
 
 function renderRoute(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
-      <AppRoutes />
+      <AuthContext.Provider value={testAuthValue}>
+        <AppRoutes />
+      </AuthContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -17,7 +34,9 @@ describe("AppRoutes", () => {
     renderRoute("/");
 
     expect(
-      await screen.findByRole("heading", { name: "Sign in" }),
+      await screen.findByRole("heading", {
+        name: "Sign in",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -36,7 +55,9 @@ describe("AppRoutes", () => {
     renderRoute("/vaults/vault-123");
 
     expect(
-      screen.getByRole("heading", { name: "Vault details" }),
+      screen.getByRole("heading", {
+        name: "Vault details",
+      }),
     ).toBeInTheDocument();
 
     expect(screen.getByText("vault-123")).toBeInTheDocument();
@@ -46,7 +67,9 @@ describe("AppRoutes", () => {
     renderRoute("/unknown");
 
     expect(
-      screen.getByRole("heading", { name: "Page not found" }),
+      screen.getByRole("heading", {
+        name: "Page not found",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -54,7 +77,9 @@ describe("AppRoutes", () => {
     renderRoute("/login");
 
     expect(
-      screen.getByRole("navigation", { name: "Primary navigation" }),
+      screen.getByRole("navigation", {
+        name: "Primary navigation",
+      }),
     ).toBeInTheDocument();
 
     expect(

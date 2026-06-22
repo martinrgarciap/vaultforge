@@ -132,9 +132,148 @@ a {
 
 .text-link {
   display: inline-block;
-  margin-top: 0.5rem;
   color: #254f9d;
   font-weight: 700;
+}
+
+.auth-card {
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.auth-intro {
+  margin: 0 0 1.5rem;
+  color: #526078;
+}
+
+.auth-form {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.form-field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.form-label {
+  font-weight: 700;
+}
+
+.form-input {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.7rem 0.8rem;
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #aeb8c7;
+  border-radius: 0.45rem;
+  outline: none;
+}
+
+.form-input:hover {
+  border-color: #77869c;
+}
+
+.form-input:focus-visible {
+  border-color: #315fae;
+  box-shadow: 0 0 0 3px rgb(49 95 174 / 18%);
+}
+
+.form-input[aria-invalid="true"] {
+  border-color: #b42318;
+}
+
+.form-input[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3px rgb(180 35 24 / 18%);
+}
+
+.form-input:disabled {
+  color: #687489;
+  background: #edf0f4;
+  cursor: not-allowed;
+}
+
+.field-help,
+.field-error,
+.request-id {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.field-help {
+  color: #5f6d82;
+}
+
+.field-error {
+  color: #9f1c13;
+  font-weight: 650;
+}
+
+.form-alert,
+.form-success {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.5rem;
+}
+
+.form-alert {
+  color: #7a1b14;
+  background: #fff0ee;
+  border: 1px solid #efb4ae;
+}
+
+.form-success {
+  color: #185d36;
+  background: #ebf8f0;
+  border: 1px solid #9ed5b4;
+  font-weight: 650;
+}
+
+.form-alert p,
+.form-success p {
+  margin: 0;
+}
+
+.request-id {
+  margin-top: 0.4rem !important;
+  color: #64342f;
+}
+
+.request-id code {
+  overflow-wrap: anywhere;
+}
+
+.primary-button {
+  min-height: 2.9rem;
+  padding: 0.75rem 1rem;
+  color: #ffffff;
+  background: #254f9d;
+  border: 1px solid #254f9d;
+  border-radius: 0.45rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: #193f85;
+  border-color: #193f85;
+}
+
+.primary-button:focus-visible {
+  outline: 3px solid rgb(49 95 174 / 30%);
+  outline-offset: 2px;
+}
+
+.primary-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.auth-switch {
+  margin: 1.5rem 0 0;
+  color: #526078;
 }
 
 @media (max-width: 700px) {

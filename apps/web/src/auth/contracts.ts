@@ -1,5 +1,10 @@
 import { ApiError } from "../api/ApiError";
-import type { Account, LoginResponse, RefreshResponse } from "../api/types";
+import type {
+  Account,
+  LoginResponse,
+  RefreshResponse,
+  RegisterResponse,
+} from "../api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -34,6 +39,16 @@ function requireString(value: Record<string, unknown>, field: string): string {
   }
 
   return fieldValue;
+}
+
+export function parseRegisterResponse(value: unknown): RegisterResponse {
+  if (!isRecord(value)) {
+    throw ApiError.invalidResponse();
+  }
+
+  return {
+    user: parseAccount(value.user),
+  };
 }
 
 export function parseLoginResponse(value: unknown): LoginResponse {

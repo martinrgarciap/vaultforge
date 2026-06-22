@@ -3,9 +3,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../api/ApiError";
 import { requestJSON } from "../api/http";
-import type { Account, ApiRequestOptions, LoginRequest } from "../api/types";
+import type {
+  Account,
+  ApiRequestOptions,
+  LoginRequest,
+  RegisterRequest,
+} from "../api/types";
 import { AuthContext } from "./AuthContext";
-import { parseLoginResponse, parseRefreshResponse } from "./contracts";
+import {
+  parseLoginResponse,
+  parseRefreshResponse,
+  parseRegisterResponse,
+} from "./contracts";
 import { readCSRFToken } from "./csrf";
 import type { AuthContextValue, AuthStatus } from "./types";
 
@@ -88,6 +97,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return refreshPromise;
   }, [clearAuthentication]);
+
+  const register = useCallback(
+    async (credentials: RegisterRequest): Promise<Account> => {
+      const rawResponse = await requestJSON<unknown>("/v1/auth/register", {
+        method: "POST",
+        json: credentials,
+      });
+
+      const response = parseRegisterResponse(rawResponse);
+
+      return response.user;
+    },
+    [],
+  );
 
   const login = useCallback(
     async (credentials: LoginRequest): Promise<Account> => {
@@ -181,11 +204,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     () => ({
       status,
       account,
+      register,
       login,
       logout,
       request: authenticatedRequest,
     }),
-    [account, authenticatedRequest, login, logout, status],
+    [account, authenticatedRequest, login, logout, register, status],
   );
 
   return (
