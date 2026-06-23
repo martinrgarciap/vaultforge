@@ -19,7 +19,7 @@ The project is being built incrementally. Components marked as planned are part 
 
 ```mermaid
 flowchart LR
-    C[API Client or Thunder Client]
+    C[React Browser or API Client]
     A[Go API]
     AH[Authentication Handler]
     SC[Session Cookie Manager]
@@ -442,14 +442,38 @@ flowchart LR
 
 ### Browser client
 
-Planned responsibilities:
+Current responsibilities:
 
-- Collect the account password during authentication.
-- Keep access tokens in memory only.
+- Render the registration, login, vault, item, and session-management workflows.
+- Use relative `/v1` and `/health` URLs through the Vite development proxy.
+- Keep access tokens in React memory only.
 - Rely on the server-issued `HttpOnly` refresh cookie.
 - Read the separate CSRF cookie and send it through `X-CSRF-Token`.
-- Coordinate one shared refresh request when concurrent API calls receive `401` responses.
+- Restore authentication after reload through the refresh and CSRF cookies.
+- Coordinate one shared refresh request when concurrent protected requests need a new access token.
 - Retry each failed protected request at most once after refresh.
+- Clear authentication after refresh failure or a final unauthorized retry.
+- Guard authenticated and guest-only routes.
+- Preserve safe internal return paths across login.
+- Parse and validate API response contracts at runtime.
+- Support vault creation, listing, retrieval, rename, and deletion.
+- Support item creation, listing, pagination, retrieval, update, soft deletion, restoration, and permanent deletion.
+- Preserve optimistic-concurrency guarantees through strong `ETag` and `If-Match` versions.
+- Show explicit stale-version conflict feedback instead of silently overwriting.
+- List active sessions and support targeted, current-device, and all-session revocation.
+- Provide loading, empty, retryable error, not-found, unauthorized, and authentication-restoration states.
+- Avoid persistent browser storage for access tokens or secret-bearing values.
+- Use synthetic item payloads until browser-side encryption is implemented.
+
+Current testing responsibilities:
+
+- Use Vitest and React Testing Library for isolated behavior.
+- Use Playwright for a real-stack workflow across React, Go, and PostgreSQL.
+- Run axe accessibility scans.
+- Check phone, tablet, and desktop layouts for horizontal overflow.
+
+Future browser-encryption responsibilities:
+
 - Collect the separate vault master passphrase during vault unlock.
 - Derive and unwrap vault encryption keys through Rust WebAssembly.
 - Encrypt vault items before upload.
@@ -532,7 +556,7 @@ Both workflows may use Argon2id, but for different purposes, with separate param
 
 ```text
 apps/api                Go HTTP API
-apps/web                Planned React client
+apps/web                React and TypeScript browser client
 services/hash-service   Planned Rust gRPC hashing service
 packages/proto          Planned shared Protocol Buffer contracts
 deployments             Compose and later Kubernetes configuration
@@ -563,13 +587,19 @@ Completed:
 - Sanitized transactional outbox integration
 - Browser-safe refresh cookies and CSRF protection
 - Bodyless refresh requests and cookie rotation
-- Unit, route, service, store, and real PostgreSQL integration tests
+- React and TypeScript browser client
+- In-memory access-token lifecycle and cookie-based authentication restoration
+- Registration and login UI
+- Vault and item lifecycle UI
+- Session-management UI
+- Loading, empty, error, not-found, and unauthorized states
+- Vitest and React Testing Library coverage
+- Real-stack Playwright coverage with PostgreSQL
+- Automated accessibility and responsive-layout checks
+- Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
 Next:
 
-- Build the minimal React and TypeScript client
-- Keep access tokens in memory
-- Implement automatic cookie-based refresh
-- Exercise the complete session, vault, and item HTTP surface
+- Begin Redis-backed rate limiting, lockouts, and reliability controls
 
-Later phases add Redis reliability controls, RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.
+Later phases add RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.

@@ -1,6 +1,6 @@
 # VaultForge
 
-VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, cross-language service integration, distributed systems, and browser-side cryptography.
+VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, browser-safe session handling, frontend architecture, distributed systems, and future browser-side cryptography.
 
 The project is designed for an individual developer storing API keys, environment variables, database connection details, login records, and secure notes.
 
@@ -10,40 +10,37 @@ The project is designed for an individual developer storing API keys, environmen
 
 VaultForge separates account authentication from vault encryption.
 
-### Current backend
-
-```text
-Client
-  ↓
-Go REST API
-  ├── Account registration and login
-  ├── Ed25519 access tokens
-  ├── Opaque refresh-token rotation
-  ├── HttpOnly refresh cookies and CSRF protection
-  ├── Stateful bearer authorization
-  ├── Session listing and revocation
-  ├── Owner-scoped vault workflows
-  ├── Vault-item lifecycle and pagination
-  ├── Optimistic concurrency and idempotency
-  ├── Sanitized transactional outbox writes
-  └── PostgreSQL persistence
-```
-
-### Planned platform
+### Current platform
 
 ```mermaid
 graph LR
     B["React and TypeScript Client"] --> A["Go REST API"]
-    B --> W["Rust WASM Crypto"]
-    W --> A
-    A --> H["Rust gRPC Hashing Service"]
     A --> P["PostgreSQL"]
-    A --> R["Redis"]
-    A --> Q["RabbitMQ"]
-    A --> O["OpenTelemetry"]
+    B -. "future browser encryption" .-> W["Rust WASM Crypto"]
+    W -. "future encrypted envelopes" .-> A
+    A -. "planned" .-> H["Rust gRPC Hashing Service"]
+    A -. "planned" .-> R["Redis"]
+    A -. "planned" .-> Q["RabbitMQ"]
+    A -. "planned" .-> O["OpenTelemetry"]
 ```
 
-The React client is the next active roadmap phase. Redis, RabbitMQ publishing, OpenTelemetry, Rust services, and WebAssembly cryptography remain planned work. Vault and synthetic item workflows are implemented, but client-side vault encryption is not.
+The current React client exercises the complete user-facing authentication, session, vault, and item workflows through relative API URLs. Vite proxies `/v1` and `/health` to the Go API during development.
+
+The current Go API provides:
+
+- Account registration and login
+- Ed25519 access tokens
+- Opaque refresh-token rotation
+- `HttpOnly` refresh cookies and CSRF protection
+- Stateful bearer authorization
+- Session listing and revocation
+- Owner-scoped vault workflows
+- Vault-item lifecycle and pagination
+- Optimistic concurrency and idempotency
+- Sanitized transactional outbox writes
+- PostgreSQL persistence
+
+Redis, RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -58,6 +55,8 @@ Successful login creates a server-side session family and returns:
 - A single-use opaque refresh token in a host-only `HttpOnly` cookie
 - A readable CSRF cookie used with the `X-CSRF-Token` header
 
+The React client keeps the access token only in memory. A page reload removes that token from JavaScript memory, and the client restores authentication through the refresh cookie and CSRF token.
+
 Login and refresh responses use `Cache-Control: no-store`. Refresh requests are bodyless, require the refresh cookie plus an exact CSRF cookie/header match, and rotate both cookies after success.
 
 Refresh tokens are stored in PostgreSQL only as SHA-256 digests. Refresh rotation preserves the session family and detects replay.
@@ -70,9 +69,11 @@ Vault encryption is a separate future browser-side workflow.
 
 A Rust WebAssembly module will derive and manage vault encryption keys in the browser. The Go API must never receive the vault master passphrase, an unwrapped vault key, or decrypted vault contents.
 
+Current item payloads contain synthetic dummy JSON. They are visible to the Go API and PostgreSQL until browser-side encryption replaces them with encrypted envelopes.
+
 ## Current state
 
-The current backend supports:
+### Backend
 
 - Account registration and login
 - Argon2id password hashing with random salts
@@ -99,27 +100,47 @@ The current backend supports:
 - Safe structured logging
 - Unit, route, service, store, and real PostgreSQL integration tests
 
-Item payloads currently contain synthetic dummy JSON only. They are visible to the Go API and PostgreSQL until the future browser-side encryption phase replaces them with encrypted envelopes.
+### Frontend
 
-The React client is the next active roadmap phase. Redis, RabbitMQ publishing, Rust services, WebAssembly cryptography, and production deployment remain later roadmap work.
+- React and TypeScript with Vite
+- Declarative React Router routes
+- Registration and login forms
+- Protected-route and guest-route guards
+- Automatic cookie-based session restoration
+- In-memory access-token handling
+- Typed API response parsing and validation
+- Vault creation, listing, viewing, renaming, and deletion
+- Item creation, listing, filtering, viewing, editing, deletion, restoration, and permanent deletion
+- Login, API key, environment variable, database connection, and secure note forms
+- Sensitive-value reveal and copy controls
+- Strong-version conflict feedback with explicit reload
+- Active-session listing, targeted revocation, current-device logout, and logout-all
+- Loading, empty, retryable error, not-found, and unauthorized states
+- Responsive phone, tablet, and desktop layouts
+- Vitest and React Testing Library coverage
+- Real-stack Playwright coverage across React, Go, and PostgreSQL
+- Automated axe accessibility scans
 
 ## Technology
 
+- **Frontend:** React, TypeScript, Vite, React Router
 - **Backend:** Go, Chi, pgx, Zap
 - **Database:** PostgreSQL
 - **Authentication:** Argon2id through a replaceable hasher interface
 - **Tokens:** Ed25519 JWT access tokens, opaque refresh tokens, and cookie-based refresh transport
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
-- **Testing:** Go testing, race detector, real PostgreSQL integration tests
-- **Quality:** gofmt, Vet, Staticcheck, Gitleaks
-- **Planned:** Redis, RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, React, Docker, Kubernetes
+- **Frontend testing:** Vitest, React Testing Library, Playwright, axe
+- **Backend testing:** Go testing, race detector, real PostgreSQL integration tests
+- **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
+- **Planned:** Redis, RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
 
 ## Repository structure
 
 ```text
 vaultforge/
 ├── apps/
-│   └── api/                 # Go HTTP API
+│   ├── api/                 # Go HTTP API
+│   └── web/                 # React and TypeScript client
 ├── deployments/
 │   └── compose.yaml         # Local PostgreSQL
 ├── docs/
@@ -137,11 +158,14 @@ vaultforge/
 ### Requirements
 
 - Go
+- Node.js 22 or newer
+- npm 10.9 or newer
 - Docker with Docker Compose
 - Make
 - Staticcheck
 - golang-migrate
 - direnv
+- Chromium installed through Playwright for browser tests
 
 ### Configure the environment
 
@@ -164,6 +188,14 @@ ACCESS_TOKEN_ED25519_SEED_BASE64
 
 Only local synthetic values belong in `.env`. Never commit production credentials or signing keys.
 
+### Install dependencies
+
+```bash
+make setup
+```
+
+This downloads Go modules, installs frontend packages, and installs the Playwright Chromium browser.
+
 ### Start PostgreSQL and apply migrations
 
 ```bash
@@ -177,10 +209,14 @@ vaultforge       development database
 vaultforge_test  integration-test database
 ```
 
-### Start the API
+The E2E workflow creates and resets a separate `vaultforge_e2e` database when needed.
+
+### Start the application
+
+In one terminal:
 
 ```bash
-make dev
+make dev-api
 ```
 
 The API runs at:
@@ -188,6 +224,33 @@ The API runs at:
 ```text
 http://localhost:8080
 ```
+
+In a second terminal:
+
+```bash
+make dev-web
+```
+
+The frontend runs at the Vite development URL, normally:
+
+```text
+http://localhost:5173
+```
+
+During development, Vite proxies `/v1` and `/health` to the Go API. The browser client uses relative API URLs.
+
+## Browser routes
+
+```text
+/register
+/login
+/vaults
+/vaults/{vaultID}
+/vaults/{vaultID}/items/{itemID}
+/sessions
+```
+
+Authenticated users are redirected away from `/login` and `/register`. Signed-out users who request protected routes are sent to Login and returned to their original internal path after successful authentication.
 
 ## API routes
 
@@ -228,14 +291,22 @@ Authorization: Bearer <access-token>
 
 Item creation also requires `Idempotency-Key`. Item updates and lifecycle mutations require a strong quoted `If-Match` version.
 
-See [`apps/api/README.md`](apps/api/README.md) for setup details, response contracts, security behavior, pagination, concurrency rules, and Thunder Client examples.
+See [`apps/api/README.md`](apps/api/README.md) for response contracts, security behavior, pagination, concurrency rules, migrations, and Thunder Client examples.
+
+See [`apps/web/README.md`](apps/web/README.md) for frontend architecture, browser-session behavior, commands, and E2E details.
 
 ## Testing and quality
 
-Run all tests with the race detector:
+Run backend and frontend unit, component, and integration tests:
 
 ```bash
 make test
+```
+
+Run the real-stack browser test:
+
+```bash
+make test-e2e
 ```
 
 Run the complete local verification suite:
@@ -244,27 +315,42 @@ Run the complete local verification suite:
 make verify
 ```
 
-The integration suite rebuilds the dedicated test database from migration version zero and tests real PostgreSQL behavior.
+`make verify` runs:
 
-The current integration coverage includes:
+- Go formatting checks
+- Go module verification
+- Vet
+- Staticcheck
+- Race-enabled Go tests
+- Frontend formatting checks
+- ESLint
+- TypeScript compilation
+- Vitest unit and component tests
+- Production frontend build
+- E2E database reset and migrations
+- The Playwright real-stack workflow
+
+The real-stack Playwright workflow verifies:
 
 - Registration and login
-- Session creation
-- Access-token verification
-- Browser refresh-cookie issuance, CSRF validation, cookie rotation, and logout clearing
-- Refresh-token rotation and replay detection
-- Stateful authorization
-- Session listing and revocation
-- Cross-user ownership isolation
-- Vault creation, retrieval, renaming, listing, and deletion
-- Item creation, pagination, retrieval, update, soft deletion, restoration, and permanent deletion
-- Idempotent create replay and idempotency conflicts
-- Optimistic-concurrency conflicts
-- Transactional outbox writes
-- Regression checks preventing secret values from entering audit payloads
-- Immediate invalidation of revoked access tokens
+- In-memory access-token handling
+- Refresh-cookie authentication restoration after reload
+- Vault creation
+- Item creation and editing
+- A real stale-version conflict between two browser sessions
+- Delete, restore, and permanent deletion
+- Session listing
+- Current-session logout
+- Protected-route rejection after logout
+- Accessibility checks
+- Phone, tablet, and desktop overflow checks
 
-GitHub Actions runs formatting checks, module verification, Vet, Staticcheck, race-enabled tests, PostgreSQL integration tests, and Gitleaks.
+GitHub Actions runs four jobs:
+
+- Go checks
+- Web checks
+- Browser E2E
+- Secret scan
 
 ## Security boundary
 
@@ -282,9 +368,18 @@ VaultForge must never log or expose outside the documented authentication transp
 - Encryption keys
 - Decrypted vault data
 
+The browser must never persist access tokens in:
+
+- `localStorage`
+- `sessionStorage`
+- IndexedDB
+- URLs
+- Logs
+- Error reports
+
 Account password hashing, session authentication, and future vault encryption are separate security concerns.
 
-Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development permits HTTP.
+Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development and tests permit HTTP.
 
 See:
 
