@@ -1,15 +1,14 @@
-import type { FormEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
+import { BackIconLink } from "../components/BackIconLink";
+import { ConfirmModal } from "../components/ConfirmModal";
+import { ItemWorkspace } from "../items/ItemWorkspace";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
-import {
-  normalizeVaultNameForSubmission,
-  validateVaultName,
-} from "../vaults/validation";
+import { VaultEditModal } from "../vaults/VaultEditModal";
 
 function formatTimestamp(value: string): string {
   const timestamp = new Date(value);
@@ -26,7 +25,6 @@ export function VaultDetailPage() {
   const navigate = useNavigate();
   const { request, status } = useAuth();
 
-  const renamingRef = useRef(false);
   const deletingRef = useRef(false);
 
   const [vault, setVault] = useState<Vault | null>(null);
@@ -34,12 +32,8 @@ export function VaultDetailPage() {
   const [loadError, setLoadError] = useState<unknown>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
 
-  const [vaultName, setVaultName] = useState("");
-  const [vaultNameError, setVaultNameError] = useState<string | undefined>();
-  const [renameError, setRenameError] = useState<unknown>(null);
-  const [isRenaming, setIsRenaming] = useState(false);
-
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -58,7 +52,7 @@ export function VaultDetailPage() {
         }
 
         setVault(response.vault);
-        setVaultName(response.vault.name);
+        setLoadError(null);
         setIsLoading(false);
       })
       .catch((error: unknown) => {
@@ -75,48 +69,23 @@ export function VaultDetailPage() {
     };
   }, [reloadVersion, request, status, vaultId]);
 
-  const handleRename = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const closeEditModal = useCallback(() => {
+    setIsEditOpen(false);
+  }, []);
 
-    if (renamingRef.current || status !== "authenticated" || !vaultId) {
-      return;
-    }
+  const closeDeleteModal = useCallback(() => {
+    setIsDeleteOpen(false);
+    setDeleteError(null);
+  }, []);
 
-    const validationError = validateVaultName(vaultName);
+  const handleVaultUpdated = useCallback((updatedVault: Vault) => {
+    setVault(updatedVault);
+  }, []);
 
-    setVaultNameError(validationError);
-    setRenameError(null);
-
-    if (validationError) {
-      return;
-    }
-
-    const normalizedName = normalizeVaultNameForSubmission(vaultName);
-
-    renamingRef.current = true;
-    setIsRenaming(true);
-
-    try {
-      const rawResponse = await request<unknown>(
-        `/v1/vaults/${encodeURIComponent(vaultId)}`,
-        {
-          method: "PATCH",
-          json: {
-            name: normalizedName,
-          },
-        },
-      );
-
-      const response = parseVaultResponse(rawResponse);
-
-      setVault(response.vault);
-      setVaultName(response.vault.name);
-    } catch (error) {
-      setRenameError(error);
-    } finally {
-      renamingRef.current = false;
-      setIsRenaming(false);
-    }
+  const reloadVault = () => {
+    setIsLoading(true);
+    setLoadError(null);
+    setReloadVersion((current) => current + 1);
   };
 
   const handleDelete = async () => {
@@ -145,46 +114,58 @@ export function VaultDetailPage() {
 
   return (
     <section className="page-card vault-page">
-      <p className="page-kicker">Vault workspace</p>
-      <h1>Vault details</h1>
-
-      <p>
-        <Link className="text-link" to="/vaults">
-          Back to vaults
-        </Link>
-      </p>
+      <BackIconLink to="/vaults" label="Back to Vault List" />
 
       {status === "restoring" ? (
-        <p className="loading-message">Restoring your session...</p>
+        <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <h1>Vault Details</h1>
+
+          <p className="loading-message">Restoring your session...</p>
+        </>
       ) : null}
 
       {status === "unauthenticated" ? (
-        <div className="vault-empty">
-          <p>Sign in to view this vault.</p>
-          <Link className="text-link" to="/login">
-            Go to login
-          </Link>
-        </div>
+        <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <h1>Vault Details</h1>
+
+          <div className="vault-empty">
+            <p>Sign in to view this vault.</p>
+
+            <Link className="text-link" to="/login">
+              Go to login
+            </Link>
+          </div>
+        </>
       ) : null}
 
       {status === "authenticated" && !vaultId ? (
-        <div className="form-alert" role="alert">
-          <p>The vault identifier is missing.</p>
-        </div>
+        <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <h1>Vault Details</h1>
+
+          <div className="form-alert" role="alert">
+            <p>The vault identifier is missing.</p>
+          </div>
+        </>
       ) : null}
 
       {status === "authenticated" && loadError ? (
         <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <h1>Vault Details</h1>
+
           <ApiErrorMessage error={loadError} />
 
           <button
             className="secondary-button"
             type="button"
-            onClick={() => {
-              setIsLoading(true);
-              setLoadError(null);
-              setReloadVersion((current) => current + 1);
-            }}
+            onClick={reloadVault}
           >
             Try again
           </button>
@@ -192,178 +173,108 @@ export function VaultDetailPage() {
       ) : null}
 
       {status === "authenticated" && !loadError && isLoading ? (
-        <p className="loading-message">Loading vault...</p>
+        <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <h1>Vault Details</h1>
+
+          <p className="loading-message">Loading vault...</p>
+        </>
       ) : null}
 
       {status === "authenticated" && !loadError && !isLoading && vault ? (
-        <div className="vault-detail-layout">
-          <section aria-labelledby="vault-information-heading">
-            <h2 id="vault-information-heading">{vault.name}</h2>
+        <>
+          <div className="page-heading-row">
+            <div className="page-heading-copy">
+              <p className="page-kicker">Vault Workspace</p>
 
-            <dl className="vault-detail-grid">
-              <div>
-                <dt>Vault ID</dt>
-                <dd>
-                  <code>{vault.id}</code>
-                </dd>
-              </div>
+              <h1>Vault Details</h1>
 
-              <div>
-                <dt>Created</dt>
-                <dd>
-                  <time dateTime={vault.createdAt}>
-                    {formatTimestamp(vault.createdAt)}
-                  </time>
-                </dd>
-              </div>
+              <p className="page-entity-name">{vault.name}</p>
+            </div>
 
-              <div>
-                <dt>Last updated</dt>
-                <dd>
-                  <time dateTime={vault.updatedAt}>
-                    {formatTimestamp(vault.updatedAt)}
-                  </time>
-                </dd>
-              </div>
-
-              <div>
-                <dt>Crypto version</dt>
-                <dd>{vault.cryptoVersion ?? "Not assigned"}</dd>
-              </div>
-
-              <div>
-                <dt>KDF version</dt>
-                <dd>{vault.kdfVersion ?? "Not assigned"}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section
-            className="vault-management-card"
-            aria-labelledby="rename-vault-heading"
-          >
-            <h2 id="rename-vault-heading">Rename vault</h2>
-
-            {renameError ? <ApiErrorMessage error={renameError} /> : null}
-
-            <form
-              className="vault-form"
-              onSubmit={handleRename}
-              aria-busy={isRenaming}
-              noValidate
-            >
-              <div className="form-field">
-                <label className="form-label" htmlFor="rename-vault-name">
-                  Vault name
-                </label>
-
-                <input
-                  className="form-input"
-                  id="rename-vault-name"
-                  name="name"
-                  type="text"
-                  value={vaultName}
-                  onChange={(event) => {
-                    setVaultName(event.target.value);
-                    setVaultNameError(undefined);
-                    setRenameError(null);
-                  }}
-                  maxLength={256}
-                  disabled={isRenaming || isDeleting}
-                  required
-                  aria-invalid={vaultNameError ? true : undefined}
-                  aria-describedby={
-                    vaultNameError ? "rename-vault-name-error" : undefined
-                  }
-                />
-
-                {vaultNameError ? (
-                  <p className="field-error" id="rename-vault-name-error">
-                    {vaultNameError}
-                  </p>
-                ) : null}
-              </div>
-
+            <div className="page-heading-actions">
               <button
                 className="primary-button"
-                type="submit"
-                disabled={isRenaming || isDeleting}
+                type="button"
+                onClick={() => {
+                  setIsEditOpen(true);
+                }}
               >
-                {isRenaming ? "Saving name..." : "Save name"}
+                Edit
               </button>
-            </form>
-          </section>
 
-          <section
-            className="vault-items-placeholder"
-            aria-labelledby="vault-items-heading"
-          >
-            <h2 id="vault-items-heading">Vault items</h2>
-            <p>Synthetic item workflows will be implemented during Step 7G.</p>
-          </section>
-
-          <section
-            className="danger-zone"
-            aria-labelledby="delete-vault-heading"
-          >
-            <h2 id="delete-vault-heading">Delete vault</h2>
-            <p>
-              Deleting this vault also removes its stored items. This action
-              cannot be undone.
-            </p>
-
-            {deleteError ? <ApiErrorMessage error={deleteError} /> : null}
-
-            {!showDeleteConfirmation ? (
               <button
                 className="danger-button"
                 type="button"
                 onClick={() => {
-                  setShowDeleteConfirmation(true);
+                  setIsDeleteOpen(true);
                   setDeleteError(null);
                 }}
-                disabled={isRenaming}
               >
-                Delete vault
+                Delete
               </button>
-            ) : (
-              <div
-                className="confirmation-panel"
-                role="group"
-                aria-label="Delete vault confirmation"
-              >
-                <p>
-                  Permanently delete <strong>{vault.name}</strong>?
-                </p>
+            </div>
+          </div>
 
-                <div className="button-row">
-                  <button
-                    className="danger-button"
-                    type="button"
-                    onClick={() => {
-                      void handleDelete();
-                    }}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? "Deleting vault..." : "Delete permanently"}
-                  </button>
+          <dl className="vault-summary-grid">
+            <div>
+              <dt>Created</dt>
 
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      setShowDeleteConfirmation(false);
-                      setDeleteError(null);
-                    }}
-                    disabled={isDeleting}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+              <dd>
+                <time dateTime={vault.createdAt}>
+                  {formatTimestamp(vault.createdAt)}
+                </time>
+              </dd>
+            </div>
+
+            <div>
+              <dt>Last Updated</dt>
+
+              <dd>
+                <time dateTime={vault.updatedAt}>
+                  {formatTimestamp(vault.updatedAt)}
+                </time>
+              </dd>
+            </div>
+          </dl>
+
+          <div className="vault-detail-content">
+            <ItemWorkspace key={vault.id} vaultId={vault.id} />
+          </div>
+
+          {isEditOpen ? (
+            <VaultEditModal
+              vault={vault}
+              onClose={closeEditModal}
+              onUpdated={handleVaultUpdated}
+            />
+          ) : null}
+
+          {isDeleteOpen ? (
+            <ConfirmModal
+              title="Delete Vault?"
+              eyebrow="Vault Workspace"
+              confirmLabel="Delete Vault"
+              busyLabel="Deleting Vault..."
+              isBusy={isDeleting}
+              error={deleteError}
+              onClose={closeDeleteModal}
+              onConfirm={() => {
+                void handleDelete();
+              }}
+            >
+              <p>
+                Delete <strong>{vault.name}</strong>?
+              </p>
+
+              <p>
+                All items inside this vault will also be deleted. This action
+                cannot be undone.
+              </p>
+            </ConfirmModal>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

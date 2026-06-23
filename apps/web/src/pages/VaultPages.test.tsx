@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,7 +56,9 @@ function renderVaultList(
       >
         <Routes>
           <Route path="/vaults" element={<VaultsPage />} />
-          <Route path="/vaults/:vaultId" element={<VaultDetailPage />} />
+
+          <Route path="/vaults/:vaultId" element={<h1>Vault destination</h1>} />
+
           <Route path="/login" element={<h1>Login destination</h1>} />
         </Routes>
       </AuthContext.Provider>
@@ -64,7 +72,8 @@ function renderVaultDetail(requestImplementation: RequestImplementation) {
       <AuthContext.Provider value={createAuthValue(requestImplementation)}>
         <Routes>
           <Route path="/vaults/:vaultId" element={<VaultDetailPage />} />
-          <Route path="/vaults" element={<h1>Vault list destination</h1>} />
+
+          <Route path="/vaults" element={<h1>Vault List destination</h1>} />
         </Routes>
       </AuthContext.Provider>
     </MemoryRouter>,
@@ -72,7 +81,7 @@ function renderVaultDetail(requestImplementation: RequestImplementation) {
 }
 
 describe("VaultsPage", () => {
-  it("loads and displays owned vaults", async () => {
+  it("loads a clickable Vault List", async () => {
     const requestMock = vi.fn(async () => ({
       vaults: [vault],
     }));
@@ -80,8 +89,26 @@ describe("VaultsPage", () => {
     renderVaultList(requestMock);
 
     expect(
-      await screen.findByRole("link", {
-        name: "Development",
+      await screen.findByRole("heading", {
+        name: "Vault List",
+      }),
+    ).toBeInTheDocument();
+
+    const row = screen.getByRole("link", {
+      name: "Open Development",
+    });
+
+    expect(
+      screen.getByRole("columnheader", {
+        name: "Last Updated",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(row);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Vault destination",
       }),
     ).toBeInTheDocument();
 
@@ -100,7 +127,7 @@ describe("VaultsPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("creates a normalized vault and adds it to the list", async () => {
+  it("creates a normalized vault and opens it", async () => {
     const requestMock = vi.fn(
       async (_path: string, options?: ApiRequestOptions) => {
         if (options?.method === "POST") {
@@ -122,21 +149,31 @@ describe("VaultsPage", () => {
 
     await screen.findByText("You do not have any vaults yet.");
 
-    fireEvent.change(screen.getByLabelText("Vault name"), {
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create Vault",
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Create Vault",
+    });
+
+    fireEvent.change(within(dialog).getByLabelText("Vault name"), {
       target: {
-        value: "  De\u0301velopment Vault  ",
+        value: "  Dévelopment Vault  ",
       },
     });
 
     fireEvent.click(
-      screen.getByRole("button", {
-        name: "Create vault",
+      within(dialog).getByRole("button", {
+        name: "Create Vault",
       }),
     );
 
     expect(
-      await screen.findByRole("link", {
-        name: "Dévelopment Vault",
+      await screen.findByRole("heading", {
+        name: "Vault destination",
       }),
     ).toBeInTheDocument();
 
@@ -164,20 +201,30 @@ describe("VaultsPage", () => {
 
     await screen.findByText("You do not have any vaults yet.");
 
-    fireEvent.change(screen.getByLabelText("Vault name"), {
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create Vault",
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Create Vault",
+    });
+
+    fireEvent.change(within(dialog).getByLabelText("Vault name"), {
       target: {
         value: "   ",
       },
     });
 
     fireEvent.click(
-      screen.getByRole("button", {
-        name: "Create vault",
+      within(dialog).getByRole("button", {
+        name: "Create Vault",
       }),
     );
 
     expect(
-      screen.getByText(
+      within(dialog).getByText(
         "Vault name must be valid Unicode, contain no control characters, and be between 1 and 128 characters.",
       ),
     ).toBeInTheDocument();
@@ -202,6 +249,7 @@ describe("VaultsPage", () => {
     expect(alert).toHaveTextContent(
       "Vault operations are temporarily unavailable.",
     );
+
     expect(alert).toHaveTextContent("Request ID: request-123");
   });
 
@@ -215,14 +263,15 @@ describe("VaultsPage", () => {
     expect(
       screen.getByText("Sign in to view and manage your vaults."),
     ).toBeInTheDocument();
+
     expect(requestMock).not.toHaveBeenCalled();
   });
 });
 
 describe("VaultDetailPage", () => {
-  it("loads and renames a vault", async () => {
+  it("loads and edits a vault through a modal", async () => {
     const requestMock = vi.fn(
-      async (_path: string, options?: ApiRequestOptions) => {
+      async (path: string, options?: ApiRequestOptions) => {
         if (options?.method === "PATCH") {
           return {
             vault: {
@@ -230,6 +279,12 @@ describe("VaultDetailPage", () => {
               name: "Production",
               updatedAt: "2026-06-22T13:00:00Z",
             },
+          };
+        }
+
+        if (path.includes("/items?")) {
+          return {
+            items: [],
           };
         }
 
@@ -241,7 +296,39 @@ describe("VaultDetailPage", () => {
 
     renderVaultDetail(requestMock);
 
-    const nameInput = await screen.findByDisplayValue("Development");
+    expect(await screen.findByText("Development")).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Vault Details",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Back to Vault List",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText("Crypto version")).not.toBeInTheDocument();
+
+    expect(screen.queryByText("KDF version")).not.toBeInTheDocument();
+
+    expect(screen.queryByText("vault-123")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit",
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Edit Vault",
+    });
+
+    const nameInput = within(dialog).getByLabelText("Vault name");
+
+    expect(nameInput).toHaveValue("Development");
 
     fireEvent.change(nameInput, {
       target: {
@@ -250,20 +337,20 @@ describe("VaultDetailPage", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", {
-        name: "Save name",
+      within(dialog).getByRole("button", {
+        name: "Save Changes",
       }),
     );
 
     await waitFor(() => {
-      expect(nameInput).toHaveValue("Production");
+      expect(screen.getByText("Production")).toBeInTheDocument();
     });
 
     expect(
-      screen.getByRole("heading", {
-        name: "Production",
+      screen.queryByRole("dialog", {
+        name: "Edit Vault",
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
 
     expect(requestMock).toHaveBeenCalledWith("/v1/vaults/vault-123", {
       method: "PATCH",
@@ -273,11 +360,17 @@ describe("VaultDetailPage", () => {
     });
   });
 
-  it("requires confirmation before deleting a vault", async () => {
+  it("requires modal confirmation before deleting a vault", async () => {
     const requestMock = vi.fn(
-      async (_path: string, options?: ApiRequestOptions) => {
+      async (path: string, options?: ApiRequestOptions) => {
         if (options?.method === "DELETE") {
           return undefined;
+        }
+
+        if (path.includes("/items?")) {
+          return {
+            items: [],
+          };
         }
 
         return {
@@ -288,31 +381,35 @@ describe("VaultDetailPage", () => {
 
     renderVaultDetail(requestMock);
 
-    await screen.findByDisplayValue("Development");
+    await screen.findByRole("heading", {
+      name: "Vault Details",
+    });
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Delete vault",
+        name: "Delete",
       }),
     );
 
-    expect(
-      screen.getByRole("group", {
-        name: "Delete vault confirmation",
-      }),
-    ).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", {
+      name: "Delete Vault?",
+    });
 
-    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(
+      requestMock.mock.calls.some(
+        ([, options]) => options?.method === "DELETE",
+      ),
+    ).toBe(false);
 
     fireEvent.click(
-      screen.getByRole("button", {
-        name: "Delete permanently",
+      within(dialog).getByRole("button", {
+        name: "Delete Vault",
       }),
     );
 
     expect(
       await screen.findByRole("heading", {
-        name: "Vault list destination",
+        name: "Vault List destination",
       }),
     ).toBeInTheDocument();
 
