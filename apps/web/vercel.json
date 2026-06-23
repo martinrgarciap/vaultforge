@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/v1/(.*)",
+      "dest": "${BACKEND_URL}/v1/$1",
+      "env": ["BACKEND_URL"]
+    },
+    {
+      "src": "/health/(.*)",
+      "dest": "${BACKEND_URL}/health/$1",
+      "env": ["BACKEND_URL"]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
