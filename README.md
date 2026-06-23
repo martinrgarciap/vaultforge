@@ -20,7 +20,6 @@ graph LR
     B -. "future browser encryption" .-> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
     A -. "planned" .-> H["Rust gRPC Hashing Service"]
-    A -. "optional later" .-> Q["RabbitMQ"]
     A --> O["OpenTelemetry"]
 ```
 
@@ -46,7 +45,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. RabbitMQ publishing remains an optional later extension. Rust services, WebAssembly cryptography, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. Reduced frontend finishing work, Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -98,7 +97,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Keyset pagination ordered by update time and item ID
 - PostgreSQL-backed idempotency-key protection for item creation
 - Strong `ETag` and `If-Match` optimistic-concurrency protection
-- Sanitized transactional outbox events written with vault and item mutations
+- Sanitized transactional audit intent records written in the same PostgreSQL transaction as vault and item mutations
 - Distributed Redis limits for registration, login, refresh, and authenticated mutations
 - Failed-login counters and temporary lockouts keyed through HMAC-protected identities
 - PostgreSQL and Redis startup checks and composite readiness
@@ -149,8 +148,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
-- **Planned:** Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
-- **Optional later:** RabbitMQ and asynchronous audit or notification workers
+- **Planned:** Reduced frontend finishing work, Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, Docker application images, Kubernetes, deployment and release work
 
 ## Repository structure
 

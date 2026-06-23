@@ -67,10 +67,10 @@ Read route or authenticated mutation
           ↓
       PostgreSQL transaction
           ├── Domain mutation
-          └── Sanitized outbox event
+          └── Sanitized transactional audit intent
 ```
 
-PostgreSQL is the durable source of truth for users, sessions, vaults, items, idempotency records, and transactional outbox records.
+PostgreSQL is the durable source of truth for users, sessions, vaults, items, idempotency records, and sanitized transactional audit intent records.
 
 Redis stores only bounded, temporary operational security state. It never stores vault payloads, passwords, tokens, keys, or durable idempotency records.
 
@@ -1043,7 +1043,7 @@ The integration suite:
 8. Tests failed-login counting, lockout activation, expiration, and clearing.
 9. Tests owner-scoped vault and item workflows.
 10. Tests item pagination, idempotency, optimistic concurrency, soft deletion, restoration, and permanent deletion.
-11. Verifies transactional outbox writes remain atomic with domain mutations.
+11. Verifies sanitized transactional audit intent records remain atomic with domain mutations.
 12. Verifies sanitized audit metadata never contains item payloads, keys, names, hashes, or other secret values.
 13. Verifies Redis keys and values contain no raw identities or secret markers.
 14. Verifies request deadlines, cancellation, dependency errors, and input bounds.
