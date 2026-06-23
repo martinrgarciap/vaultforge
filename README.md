@@ -16,10 +16,10 @@ VaultForge separates account authentication from vault encryption.
 graph LR
     B["React and TypeScript Client"] --> A["Go REST API"]
     A --> P["PostgreSQL"]
+    A --> R["Redis"]
     B -. "future browser encryption" .-> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
     A -. "planned" .-> H["Rust gRPC Hashing Service"]
-    A -. "planned" .-> R["Redis"]
     A -. "planned" .-> Q["RabbitMQ"]
     A -. "planned" .-> O["OpenTelemetry"]
 ```
@@ -36,11 +36,17 @@ The current Go API provides:
 - Session listing and revocation
 - Owner-scoped vault workflows
 - Vault-item lifecycle and pagination
-- Optimistic concurrency and idempotency
+- Optimistic concurrency and PostgreSQL-backed idempotency
 - Sanitized transactional outbox writes
 - PostgreSQL persistence
+- Redis-backed distributed request limits
+- Failed-login tracking and temporary lockouts
+- Bounded dependency and HTTP timeouts
+- PostgreSQL and Redis readiness checks
+- Sanitized build diagnostics
+- Loopback-only low-cardinality HTTP metrics
 
-Redis, RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, and production deployment remain planned work.
+RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -90,15 +96,22 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Vault-item creation, listing, retrieval, update, soft deletion, restoration, and permanent deletion
 - Item types for login records, API keys, environment variables, database connections, and secure notes
 - Keyset pagination ordered by update time and item ID
-- Idempotency-key protection for item creation
+- PostgreSQL-backed idempotency-key protection for item creation
 - Strong `ETag` and `If-Match` optimistic-concurrency protection
 - Sanitized transactional outbox events written with vault and item mutations
-- Generic credential, token, ownership, and not-found responses
-- PostgreSQL persistence and migrations
-- Database-backed readiness checks
-- Strict JSON request handling and body limits
+- Distributed Redis limits for registration, login, refresh, and authenticated mutations
+- Failed-login counters and temporary lockouts keyed through HMAC-protected identities
+- PostgreSQL and Redis startup checks and composite readiness
+- Defined PostgreSQL and Redis outage behavior with safe `503` responses
+- Configurable HTTP, shutdown, PostgreSQL, and Redis timeouts
+- Context cancellation through handlers, services, and repositories
+- Aggregate header, request-body, query, token, cursor, and identifier bounds
+- Bounded and sanitized request IDs
+- Sanitized build version and commit diagnostics
+- Loopback-only Prometheus-text HTTP metrics using normalized route patterns
+- Generic credential, token, ownership, dependency, and not-found responses
 - Safe structured logging
-- Unit, route, service, store, and real PostgreSQL integration tests
+- Unit, route, service, store, PostgreSQL integration, Redis integration, outage, and race tests
 
 ### Frontend
 
@@ -118,21 +131,22 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Loading, empty, retryable error, not-found, and unauthorized states
 - Responsive phone, tablet, and desktop layouts
 - Vitest and React Testing Library coverage
-- Real-stack Playwright coverage across React, Go, and PostgreSQL
+- Real-stack Playwright coverage across React, Go, PostgreSQL, and Redis
 - Automated axe accessibility scans
 
 ## Technology
 
 - **Frontend:** React, TypeScript, Vite, React Router
-- **Backend:** Go, Chi, pgx, Zap
-- **Database:** PostgreSQL
+- **Backend:** Go, Chi, pgx, go-redis, Zap
+- **Persistence:** PostgreSQL
+- **Operational state:** Redis
 - **Authentication:** Argon2id through a replaceable hasher interface
 - **Tokens:** Ed25519 JWT access tokens, opaque refresh tokens, and cookie-based refresh transport
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Frontend testing:** Vitest, React Testing Library, Playwright, axe
-- **Backend testing:** Go testing, race detector, real PostgreSQL integration tests
+- **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
-- **Planned:** Redis, RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
+- **Planned:** RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
 
 ## Repository structure
 
@@ -142,7 +156,7 @@ vaultforge/
 │   ├── api/                 # Go HTTP API
 │   └── web/                 # React and TypeScript client
 ├── deployments/
-│   └── compose.yaml         # Local PostgreSQL
+│   └── compose.yaml         # Local PostgreSQL and Redis
 ├── docs/
 │   ├── architecture.md
 │   ├── scope.md
@@ -174,7 +188,7 @@ cp .env.example .env
 direnv allow
 ```
 
-Generate a local Ed25519 seed:
+Generate a local Ed25519 signing seed:
 
 ```bash
 openssl rand -base64 32
@@ -186,7 +200,19 @@ Place the generated value in:
 ACCESS_TOKEN_ED25519_SEED_BASE64
 ```
 
-Only local synthetic values belong in `.env`. Never commit production credentials or signing keys.
+Generate a separate HMAC key for Redis identity protection:
+
+```bash
+openssl rand -base64 32
+```
+
+Place that different generated value in:
+
+```text
+RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64
+```
+
+Do not reuse one key for both purposes. Only local synthetic values belong in `.env`. Never commit credentials, signing seeds, HMAC keys, or real secrets.
 
 ### Install dependencies
 
@@ -196,20 +222,20 @@ make setup
 
 This downloads Go modules, installs frontend packages, and installs the Playwright Chromium browser.
 
-### Start PostgreSQL and apply migrations
+### Start PostgreSQL and Redis, then apply migrations
 
 ```bash
 make db-setup
 ```
 
-This prepares:
+This starts the local PostgreSQL and Redis containers and prepares:
 
 ```text
 vaultforge       development database
 vaultforge_test  integration-test database
 ```
 
-The E2E workflow creates and resets a separate `vaultforge_e2e` database when needed.
+Redis uses a local, non-persistent development instance. The E2E workflow creates and resets a separate `vaultforge_e2e` database and uses an isolated Redis database number.
 
 ### Start the application
 
@@ -258,6 +284,8 @@ Authenticated users are redirected away from `/login` and `/register`. Signed-ou
 GET    /health
 GET    /health/live
 GET    /health/ready
+GET    /health/diagnostics
+GET    /internal/metrics
 
 POST   /v1/auth/register
 POST   /v1/auth/login
@@ -283,6 +311,8 @@ POST   /v1/vaults/{vaultID}/items/{itemID}/restore
 DELETE /v1/vaults/{vaultID}/items/{itemID}/permanent
 ```
 
+`/health/diagnostics` returns only the sanitized service name, build version, and commit. `/internal/metrics` is available only to the direct loopback peer and ignores forwarded-IP headers.
+
 All session, vault, and item routes require:
 
 ```text
@@ -291,9 +321,42 @@ Authorization: Bearer <access-token>
 
 Item creation also requires `Idempotency-Key`. Item updates and lifecycle mutations require a strong quoted `If-Match` version.
 
-See [`apps/api/README.md`](apps/api/README.md) for response contracts, security behavior, pagination, concurrency rules, migrations, and Thunder Client examples.
+See [`apps/api/README.md`](apps/api/README.md) for response contracts, security behavior, Redis policies, failure behavior, pagination, concurrency rules, migrations, and Thunder Client examples.
 
 See [`apps/web/README.md`](apps/web/README.md) for frontend architecture, browser-session behavior, commands, and E2E details.
+
+## Reliability and failure behavior
+
+Redis stores only bounded, short-lived operational security state:
+
+- Fixed-window request counters
+- Failed-login counters
+- Temporary login-lockout state
+
+Redis identities are transformed with HMAC-SHA-256 before becoming key material. Redis never stores passwords, password hashes, raw tokens, authorization headers, cookies, signing keys, item payloads, vault values, encryption keys, database URLs, or raw dependency errors.
+
+The default policies are:
+
+- Registration: 5 requests per 10 minutes per direct peer IP
+- Login: 20 requests per minute per direct peer IP
+- Refresh: 30 requests per minute per direct peer IP
+- Authenticated mutations: 60 requests per minute per authenticated user
+- Login lockout: 5 invalid-credential failures within 15 minutes triggers a 15-minute lockout for normalized email plus direct peer IP
+
+Forwarded client-IP headers are ignored until an explicit trusted-proxy model exists.
+
+Failure behavior is intentional:
+
+- Startup fails when PostgreSQL or Redis is unavailable.
+- Liveness remains dependency-free.
+- Readiness checks PostgreSQL and Redis with a short timeout.
+- PostgreSQL failure causes data-dependent requests to return safe `503` responses.
+- Redis failure blocks registration, login, refresh, and authenticated mutations with safe `503` responses.
+- Read-only vault and item requests do not depend on Redis during request handling.
+- Registration and login fail closed if password hashing is unavailable.
+- Dependency errors never expose connection strings or raw driver details.
+
+PostgreSQL remains the source of truth for durable item-creation idempotency. Redis does not duplicate that mechanism.
 
 ## Testing and quality
 
@@ -309,6 +372,12 @@ Run the real-stack browser test:
 make test-e2e
 ```
 
+Build the API with sanitized Git version and commit metadata:
+
+```bash
+make build-api
+```
+
 Run the complete local verification suite:
 
 ```bash
@@ -322,6 +391,8 @@ make verify
 - Vet
 - Staticcheck
 - Race-enabled Go tests
+- PostgreSQL and Redis integration tests
+- API build with linker-injected version and commit metadata
 - Frontend formatting checks
 - ESLint
 - TypeScript compilation
@@ -335,6 +406,7 @@ The real-stack Playwright workflow verifies:
 - Registration and login
 - In-memory access-token handling
 - Refresh-cookie authentication restoration after reload
+- Redis-backed authentication and mutation enforcement in the normal path
 - Vault creation
 - Item creation and editing
 - A real stale-version conflict between two browser sessions
@@ -345,6 +417,16 @@ The real-stack Playwright workflow verifies:
 - Accessibility checks
 - Phone, tablet, and desktop overflow checks
 
+Focused backend tests also verify:
+
+- Atomic Redis limits under concurrency
+- Login-lockout activation, expiration, and clearing
+- Redis keys and values contain no raw identity material
+- PostgreSQL and Redis outage behavior and recovery
+- Request deadlines and cancellation propagation
+- Bounded headers, bodies, queries, tokens, cursors, and identifiers
+- Diagnostics and metrics never expose secrets or resource identifiers
+
 GitHub Actions runs four jobs:
 
 - Go checks
@@ -354,7 +436,7 @@ GitHub Actions runs four jobs:
 
 ## Security boundary
 
-VaultForge must never log or expose outside the documented authentication transport:
+VaultForge must never log, meter, cache, or expose outside the documented authentication transport:
 
 - Plaintext passwords
 - Encoded password hashes
@@ -362,11 +444,14 @@ VaultForge must never log or expose outside the documented authentication transp
 - Cookies
 - Access or refresh tokens
 - Refresh-token digests
-- Database URLs
+- Database or Redis URLs
 - Token-signing seeds or private keys
+- Rate-limit identity HMAC keys
+- Raw email or IP identities in Redis keys
 - Vault passphrases
 - Encryption keys
-- Decrypted vault data
+- Vault payloads or decrypted vault data
+- Raw dependency error strings
 
 The browser must never persist access tokens in:
 
@@ -377,9 +462,11 @@ The browser must never persist access tokens in:
 - Logs
 - Error reports
 
-Account password hashing, session authentication, and future vault encryption are separate security concerns.
+Account password hashing, session authentication, Redis operational security state, and future vault encryption are separate security concerns.
 
 Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development and tests permit HTTP.
+
+Metrics use normalized route patterns, HTTP methods, and status classes only. The internal metrics route rejects non-loopback direct peers and does not trust forwarded-IP headers.
 
 See:
 

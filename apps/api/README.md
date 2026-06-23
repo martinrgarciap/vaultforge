@@ -30,18 +30,22 @@ HTTP request
 Chi router
     ↓
 Global middleware
-    ├── Request ID
+    ├── Bounded request ID
     ├── Safe request logging
+    ├── Low-cardinality HTTP metrics
     ├── Panic recovery
     ├── Security headers
-    └── Request timeout
+    └── Configurable request deadline
     ↓
-Public routes
-    └── Authentication handler
+Public authentication routes
+    ├── Redis fixed-window request limit by direct peer IP
+    ├── Login lockout check by normalized email plus direct peer IP
+    └── Authentication or session handler
           ↓
       Authentication and session services
-          ↓
-      PostgreSQL
+          ├── PasswordHasher
+          ├── PostgreSQL stores
+          └── Redis login-protection state
 
 Protected routes
     ↓
@@ -50,14 +54,22 @@ Bearer authentication middleware
     ├── Confirm the PostgreSQL session is active
     └── Add the authenticated principal to request context
     ↓
-Session, vault, or item handler
-    ↓
-Session or vault service
-    ↓
-PostgreSQL transaction
-    ├── Domain mutation
-    └── Sanitized outbox event
+Read route or authenticated mutation
+    ├── Read route: no Redis call during request handling
+    └── Mutation: Redis fixed-window request limit by authenticated user ID
+          ↓
+      Session, vault, or item handler
+          ↓
+      Session or vault service
+          ↓
+      PostgreSQL transaction
+          ├── Domain mutation
+          └── Sanitized outbox event
 ```
+
+PostgreSQL is the durable source of truth for users, sessions, vaults, items, idempotency records, and transactional outbox records.
+
+Redis stores only bounded, temporary operational security state. It never stores vault payloads, passwords, tokens, keys, or durable idempotency records.
 
 Handlers receive ownership from the authenticated principal. Clients cannot select an owner ID in request bodies or query parameters.
 
@@ -72,17 +84,22 @@ apps/api/
 ├── cmd/api/                  # Application entry point and dependency wiring
 ├── internal/
 │   ├── api/
-│   │   ├── authhandler/      # Registration, login, and refresh handlers
-│   │   ├── health/           # Liveness and readiness handlers
+│   │   ├── authhandler/      # Registration, login, refresh, and login protection
+│   │   ├── diagnostics/      # Sanitized build diagnostics
+│   │   ├── health/           # Liveness and PostgreSQL-plus-Redis readiness
 │   │   ├── itemhandler/      # Item lifecycle, pagination, ETag, and idempotency HTTP contracts
-│   │   ├── middleware/       # Logging, recovery, security, and bearer authentication
+│   │   ├── metrics/          # Race-safe low-cardinality HTTP metrics
+│   │   ├── middleware/       # Logging, limits, recovery, security, timeouts, and authentication
 │   │   ├── request/          # Strict JSON and bodyless-request validation
 │   │   ├── response/         # Shared JSON response contracts
 │   │   ├── sessioncookie/    # Refresh-cookie and CSRF transport
 │   │   ├── sessionhandler/   # Session listing and revocation handlers
 │   │   └── vaulthandler/     # Vault lifecycle handlers
 │   ├── auth/                 # Password policy, Argon2id, and account authentication
+│   ├── buildinfo/            # Sanitized build version and commit metadata
 │   ├── db/                   # PostgreSQL connection setup
+│   ├── ratelimit/            # Redis scripts, opaque keys, request limits, and lockouts
+│   ├── redisclient/          # Redis configuration, lifecycle, ping, and script execution
 │   ├── session/              # Tokens, login, refresh, authentication, and sessions
 │   ├── store/                # PostgreSQL stores and transactional operations
 │   └── vault/                # Vault and item domain services and contracts
@@ -104,6 +121,20 @@ Create the local environment file:
 
 ```bash
 cp .env.example .env
+```
+
+Generate separate local keys:
+
+```bash
+openssl rand -base64 32
+openssl rand -base64 32
+```
+
+Place one generated value in `ACCESS_TOKEN_ED25519_SEED_BASE64` and the other in `RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64`. Do not reuse the same value.
+
+Then load the environment:
+
+```bash
 direnv allow
 ```
 
@@ -113,26 +144,78 @@ From the repository root:
 
 ```bash
 make db-setup
-make dev
+make dev-api
 ```
 
-Default address:
+`make db-setup` starts PostgreSQL and Redis, creates the integration-test database when needed, and applies development migrations.
+
+Default API address:
 
 ```text
 http://localhost:8080
 ```
 
-## Health routes
+## Health and operational routes
 
 ```text
 GET /health
 GET /health/live
 GET /health/ready
+GET /health/diagnostics
+GET /internal/metrics
 ```
 
-`/health` and `/health/live` verify that the process can respond.
+`/health` and `/health/live` verify that the process can respond. They do not query dependencies.
 
-`/health/ready` also checks PostgreSQL with a short timeout and returns `503 Service Unavailable` when the database is unavailable.
+`/health/ready` checks PostgreSQL and Redis with a two-second deadline. It returns `503 Service Unavailable` if either required dependency is unavailable.
+
+`/health/diagnostics` returns only:
+
+```json
+{
+  "service": "vaultforge-api",
+  "version": "sanitized-build-version",
+  "commit": "sanitized-commit"
+}
+```
+
+The Makefile injects version and commit metadata into development and verification builds. Invalid metadata falls back to safe defaults.
+
+`/internal/metrics` emits Prometheus text for sanitized build information, process uptime, in-flight requests, completed-request counts, and request-duration sums and counts. Labels are limited to normalized method, Chi route pattern, and status class.
+
+The metrics route accepts only direct loopback peers. It ignores forwarded-IP headers and returns `404 Not Found` to non-loopback callers. Diagnostics and metrics responses use `Cache-Control: no-store`.
+
+## Redis rate limiting and login protection
+
+Redis is required at startup and for security-sensitive request handling.
+
+Default fixed-window policies:
+
+| Scope                    | Identity              | Default policy            |
+| ------------------------ | --------------------- | ------------------------- |
+| Registration             | Direct peer IP        | 5 requests per 10 minutes |
+| Login                    | Direct peer IP        | 20 requests per minute    |
+| Refresh                  | Direct peer IP        | 30 requests per minute    |
+| Vault and item mutations | Authenticated user ID | 60 requests per minute    |
+
+Login protection uses normalized email plus direct peer IP:
+
+- The fifth invalid-credential failure within 15 minutes activates a 15-minute lockout.
+- Active lockouts return `429 Too Many Requests` with a rounded-up `Retry-After` header.
+- Successful login clears failed-login and lockout state on a best-effort basis after the session is created.
+- Invalid email syntax uses a fixed sentinel identity rather than placing attacker-controlled input into key construction.
+
+Redis keys use HMAC-SHA-256 over length-prefixed identity parts. Raw email addresses, IP addresses, user IDs, tokens, and other identity material are not stored in Redis keys or values.
+
+The application ignores `X-Forwarded-For`, `X-Real-IP`, and similar headers until a trusted-proxy configuration exists.
+
+Redis failure behavior:
+
+- Registration, login, refresh, and authenticated mutations fail closed with safe `503` responses.
+- Read-only vault and item routes do not call Redis during request handling.
+- Readiness fails while Redis is unavailable.
+- Liveness remains available.
+- The Redis client and existing application process recover after Redis returns.
 
 ## Authentication routes
 
@@ -707,6 +790,25 @@ Unknown email addresses, incorrect passwords, invalid login input, and disabled 
 
 This reduces account-enumeration clues.
 
+Each invalid-credential failure increments the Redis login-protection state for normalized email plus direct peer IP. Reaching the configured threshold activates a temporary lockout:
+
+```text
+429 Too Many Requests
+Retry-After: <seconds>
+```
+
+```json
+{
+  "error": {
+    "code": "login_locked",
+    "message": "Too many failed login attempts. Try again later.",
+    "request_id": "generated-request-id"
+  }
+}
+```
+
+Redis unavailability blocks login with a safe `503 Service Unavailable` response rather than allowing unlimited password attempts.
+
 ### Access-token failures
 
 Missing, malformed, invalid, expired, revoked-session, and disabled-account access tokens return:
@@ -771,29 +873,49 @@ Registration and login JSON requests must:
 - Use `Content-Type: application/json`
 - Contain exactly one JSON object
 - Use only documented fields
-- Remain within the configured request-body limit
+- Remain within the authentication body limit
+- Remain within validated email and password bounds
 
 Refresh requests must contain no body and must use the cookie and CSRF-header contract described above.
 
+Global and route-specific bounds include:
+
+- 32 KiB aggregate request-header limit
+- 4 KiB bearer-token limit
+- 4 KiB authentication body limit
+- 4 KiB item raw-query limit
+- Item page limits from 1 through 100
+- Bounded opaque item cursors
+- 32-byte `If-Match` limit
+- 128-byte sanitized incoming request IDs
+- 256-byte session, vault, item, principal, and correlation identifiers
+- Existing vault names, item titles, payloads, idempotency keys, and user-agent bounds
+
 Examples:
 
-| Condition                             |                       Status |
-| ------------------------------------- | ---------------------------: |
-| Malformed JSON                        |            `400 Bad Request` |
-| Missing or invalid access token       |           `401 Unauthorized` |
-| Incorrect credentials                 |           `401 Unauthorized` |
-| Invalid refresh token                 |           `401 Unauthorized` |
-| Missing or invalid refresh CSRF token |              `403 Forbidden` |
-| Non-empty refresh request body        |            `400 Bad Request` |
-| Unknown or unowned session            |              `404 Not Found` |
-| Duplicate email                       |               `409 Conflict` |
-| Item idempotency conflict             |               `409 Conflict` |
-| Stale item version                    |    `412 Precondition Failed` |
-| Missing item `If-Match`               |  `428 Precondition Required` |
-| Oversized request                     |      `413 Content Too Large` |
-| Unsupported content type              | `415 Unsupported Media Type` |
-| Invalid registration field            |   `422 Unprocessable Entity` |
-| Authentication dependency unavailable |    `503 Service Unavailable` |
+| Condition                                   |                       Status |
+| ------------------------------------------- | ---------------------------: |
+| Malformed JSON                              |            `400 Bad Request` |
+| Malformed or oversized query                |            `400 Bad Request` |
+| Missing or invalid access token             |           `401 Unauthorized` |
+| Incorrect credentials                       |           `401 Unauthorized` |
+| Invalid refresh token                       |           `401 Unauthorized` |
+| Missing or invalid refresh CSRF token       |              `403 Forbidden` |
+| Non-empty refresh request body              |            `400 Bad Request` |
+| Unknown or unowned session                  |              `404 Not Found` |
+| Duplicate email                             |               `409 Conflict` |
+| Item idempotency conflict                   |               `409 Conflict` |
+| Rate limit exceeded                         |      `429 Too Many Requests` |
+| Login temporarily locked                    |      `429 Too Many Requests` |
+| Stale item version                          |    `412 Precondition Failed` |
+| Missing item `If-Match`                     |  `428 Precondition Required` |
+| Oversized request                           |      `413 Content Too Large` |
+| Unsupported content type                    | `415 Unsupported Media Type` |
+| Invalid registration field                  |   `422 Unprocessable Entity` |
+| Authentication dependency unavailable       |    `503 Service Unavailable` |
+| Required application dependency unavailable |    `503 Service Unavailable` |
+
+Rate-limit and lockout responses include `Retry-After`.
 
 All API errors use this structure:
 
@@ -809,7 +931,7 @@ All API errors use this structure:
 
 ## Database and migrations
 
-Start PostgreSQL and prepare both databases:
+Start PostgreSQL and Redis and prepare the development and test databases:
 
 ```bash
 make db-setup
@@ -839,12 +961,20 @@ Open the development database:
 make db-shell
 ```
 
+Open the Redis CLI:
+
+```bash
+make redis-shell
+```
+
+PostgreSQL stores durable application state, including item idempotency records. Redis stores temporary operational security state only and is configured without persistence in local Compose.
+
 ## Testing
 
 From the repository root:
 
 ```bash
-make test
+make test-api
 ```
 
 Or from `apps/api`:
@@ -853,31 +983,40 @@ Or from `apps/api`:
 go test -race -count=1 ./...
 ```
 
-`TEST_DATABASE_URL` must point to the dedicated `vaultforge_test` database.
+`TEST_DATABASE_URL` must point to the dedicated `vaultforge_test` database. `TEST_REDIS_URL` must point to an isolated Redis database number.
 
 The integration suite:
 
-1. Rolls the test schema back to version zero.
+1. Rolls the PostgreSQL test schema back to version zero.
 2. Applies all migrations.
-3. Opens a real PostgreSQL pool.
+3. Opens a real PostgreSQL pool and Redis client.
 4. Tests schema rules and PostgreSQL repositories.
-5. Tests registration, login cookie issuance, login-issued CSRF use, refresh-cookie and CSRF rotation, replay detection, authorization, session listing, and revocation through the real HTTP stack.
-6. Tests owner-scoped vault and item workflows.
-7. Tests item pagination, idempotency, optimistic concurrency, soft deletion, restoration, and permanent deletion.
-8. Verifies transactional outbox writes remain atomic with domain mutations.
-9. Verifies sanitized audit metadata never contains item payloads, keys, names, hashes, or other secret values.
-10. Verifies cross-user ownership isolation and immediate invalidation of revoked access tokens.
-11. Rolls the test database back to version zero.
+5. Tests Redis connectivity, safe connection failures, scripts, TTLs, and opaque key behavior.
+6. Tests registration, login cookie issuance, login-issued CSRF use, refresh-cookie and CSRF rotation, replay detection, authorization, session listing, and revocation through the real HTTP stack.
+7. Tests registration, login, refresh, and mutation request limits.
+8. Tests failed-login counting, lockout activation, expiration, and clearing.
+9. Tests owner-scoped vault and item workflows.
+10. Tests item pagination, idempotency, optimistic concurrency, soft deletion, restoration, and permanent deletion.
+11. Verifies transactional outbox writes remain atomic with domain mutations.
+12. Verifies sanitized audit metadata never contains item payloads, keys, names, hashes, or other secret values.
+13. Verifies Redis keys and values contain no raw identities or secret markers.
+14. Verifies request deadlines, cancellation, dependency errors, and input bounds.
+15. Verifies build diagnostics and metrics remain sanitized and race-safe.
+16. Verifies cross-user ownership isolation and immediate invalidation of revoked access tokens.
+17. Rolls the test database back to version zero.
+
+Controlled runtime scripts additionally verify PostgreSQL outage and recovery, Redis outage and recovery, diagnostics metadata, normalized metrics routes, and secret exclusion.
 
 The integration tests use the real:
 
 - Chi router
 - HTTP middleware
-- Authentication, session, vault, and item handlers
+- Authentication, session, vault, item, diagnostics, health, and metrics handlers
 - Authentication, session, and vault services
 - Argon2id adapter
 - Ed25519 token manager
 - PostgreSQL stores and transactions
+- Redis client and Lua scripts
 
 ## Quality checks
 
@@ -888,16 +1027,19 @@ make format
 make format-check
 make lint
 make mod-verify
+make build-api
 make verify
 ```
 
-`make verify` runs formatting checks, module verification, `go vet`, Staticcheck, and the complete race-enabled Go test suite.
+`make build-api` injects sanitized Git version and commit metadata and writes the temporary binary outside the repository.
 
-GitHub Actions runs the repository verification workflow for pushed commits and pull requests.
+`make verify` runs Go formatting checks, module verification, `go vet`, Staticcheck, the complete race-enabled Go test suite, the API metadata build, frontend checks and tests, the frontend production build, and real-stack Playwright E2E.
+
+GitHub Actions runs Go checks with PostgreSQL and Redis, web checks, browser E2E with PostgreSQL and Redis, and Gitleaks secret scanning for pushed commits and pull requests.
 
 ## Security rules
 
-Never log or return outside the documented authentication response and cookie transport:
+Never log, meter, store in Redis, or return outside the documented authentication response and cookie transport:
 
 - Request bodies
 - Plaintext passwords
@@ -906,9 +1048,18 @@ Never log or return outside the documented authentication response and cookie tr
 - Cookies
 - Access or refresh tokens
 - Refresh-token digests
-- Database URLs
+- CSRF token values
+- Database or Redis URLs
+- Signing seeds or private keys
+- Rate-limit identity HMAC keys
+- Raw rate-limit identities
 - Vault passphrases
 - Encryption keys
-- Decrypted vault contents
+- Item payloads or decrypted vault contents
+- Raw dependency errors
 
-Use synthetic test data only.
+Redis keys and values must remain bounded, short-lived, and opaque. PostgreSQL remains authoritative for durable data and idempotency.
+
+Metrics use normalized route patterns instead of raw paths. Diagnostics expose only sanitized build identity. The metrics endpoint accepts only direct loopback peers and ignores forwarded-IP headers.
+
+Use synthetic test data only. VaultForge is not independently audited and must not be used for real credentials or production secrets.

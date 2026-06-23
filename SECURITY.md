@@ -87,7 +87,7 @@ Unknown, already-revoked, and other users’ session identifiers return the same
 
 Logout of the current session, revocation of the current session by ID, and logout of all sessions clear both browser session cookies. Revoking a different session does not clear the current browser cookies.
 
-## Signing-key handling
+## Signing and HMAC key handling
 
 The local API requires an Ed25519 seed through:
 
@@ -95,16 +95,84 @@ The local API requires an Ed25519 seed through:
 ACCESS_TOKEN_ED25519_SEED_BASE64
 ```
 
-Signing seeds and private keys must never be:
+Redis identity protection requires a separate HMAC key through:
+
+```text
+RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64
+```
+
+Generate each value independently with cryptographically secure randomness. Do not reuse the signing seed as the rate-limit HMAC key.
+
+Signing seeds, private keys, and rate-limit HMAC keys must never be:
 
 - Committed to Git
 - Added to test fixtures
 - Logged
 - Included in screenshots
 - Shared in issues or pull requests
+- Embedded in diagnostics or metrics
 - Reused as production secrets
 
-Production key storage, rotation, and multi-key verification are not implemented yet.
+Production key storage, signing-key rotation, HMAC-key rotation, and multi-key verification are not implemented yet.
+
+## Redis-backed security controls
+
+Redis is a required runtime dependency for distributed abuse protection. It stores operational security state only.
+
+Current Redis responsibilities:
+
+- Fixed-window request counters for registration, login, refresh, and authenticated mutations
+- Failed-login counters
+- Temporary login-lockout state
+
+Identity material is transformed with HMAC-SHA-256 before being included in Redis keys. Length-prefixed identity parts prevent ambiguous concatenation.
+
+Redis must never store:
+
+- Plaintext passwords
+- Password hashes
+- Authorization headers
+- Access or refresh tokens
+- Refresh-token digests
+- CSRF token values
+- Signing seeds or HMAC keys
+- Database or Redis URLs
+- Vault passphrases
+- Encryption keys
+- Item payloads or vault values
+- Raw request bodies
+- Raw dependency errors
+- Raw email addresses, IP addresses, or authenticated user IDs as key material
+
+All rate-limit, failed-login, and lockout records have bounded expiration. Redis persistence is disabled in local Compose because these records are temporary operational state, not durable application data.
+
+The default policies are:
+
+- Registration: 5 requests per 10 minutes per direct peer IP
+- Login: 20 requests per minute per direct peer IP
+- Refresh: 30 requests per minute per direct peer IP
+- Authenticated mutations: 60 requests per minute per authenticated user ID
+- Login protection: 5 invalid-credential failures within 15 minutes triggers a 15-minute lockout for normalized email plus direct peer IP
+
+The application uses the direct TCP peer address. It ignores `X-Forwarded-For`, `X-Real-IP`, and similar forwarding headers until a trusted-proxy configuration is implemented.
+
+Successful login clears failed-login and lockout state on a best-effort basis after the session has been created. Durable item-creation idempotency remains in PostgreSQL and is not duplicated in Redis.
+
+## Dependency failure behavior
+
+Failure behavior is defined and tested:
+
+- Application startup fails if PostgreSQL or Redis cannot be reached.
+- Liveness does not query dependencies.
+- Readiness checks both PostgreSQL and Redis with a short deadline.
+- PostgreSQL failure returns sanitized `503 Service Unavailable` responses for data-dependent requests.
+- Redis failure blocks registration, login, refresh, and authenticated mutations with sanitized `503` responses.
+- Read-only vault and item routes do not call Redis during request handling.
+- Registration and login fail closed when the password hasher is unavailable.
+- Context cancellation and deadlines propagate through handlers, services, repositories, and dependency calls.
+- PostgreSQL and Redis connection details and raw driver errors are never returned to clients.
+
+Controlled outage tests verify failure and recovery behavior for both PostgreSQL and Redis.
 
 ## Current synthetic vault API
 
@@ -137,9 +205,9 @@ The Go API must never receive:
 
 The backend will persist encrypted payloads and non-secret cryptographic metadata only.
 
-## Sensitive logging policy
+## Sensitive logging and metrics policy
 
-Logs, traces, metrics, queues, errors, and screenshots must not contain:
+Logs, traces, metrics, queues, errors, diagnostics, screenshots, and Redis records must not contain:
 
 - Request bodies
 - Passwords
@@ -148,14 +216,24 @@ Logs, traces, metrics, queues, errors, and screenshots must not contain:
 - Cookies
 - Access or refresh tokens
 - Refresh-token digests
-- Database URLs
+- CSRF token values
+- Database or Redis URLs
 - Token-signing seeds or private keys
+- Rate-limit identity HMAC keys
+- Raw rate-limit identities
 - Vault values
 - Vault passphrases
 - Encryption keys
 - Decrypted content
+- Raw dependency errors
 
-Authentication logs should contain only safe operational metadata such as method, path, status, duration, and request ID.
+Authentication logs contain only safe operational metadata such as method, path, status, duration, and bounded request ID.
+
+The metrics registry records only normalized HTTP method, Chi route pattern, status class, count, duration, in-flight requests, uptime, and sanitized build metadata. It never records raw URLs, query values, resource IDs, user IDs, email addresses, tokens, cookies, headers, or request bodies.
+
+`/internal/metrics` is available only to the direct loopback peer. Forwarded-IP headers are ignored. Rejected external requests receive the same public not-found response used for unavailable internal routes.
+
+`/health/diagnostics` returns only the service name, sanitized build version, and sanitized commit identifier. Diagnostics and metrics responses use `Cache-Control: no-store`.
 
 ## Implemented safeguards
 
@@ -172,15 +250,29 @@ The current backend includes:
 - Double-submit CSRF protection for bodyless refresh requests
 - Refresh and CSRF cookie rotation and logout clearing
 - Ownership checks for session, vault, and item operations
-- Strict JSON decoding and body-size limits
+- Strict JSON decoding and request-body limits
+- Aggregate request-header limits
+- Bounded authorization tokens, request IDs, route identifiers, queries, cursors, pagination, and `If-Match` values
 - Idempotency-key protection for item creation
 - Strong `ETag` and `If-Match` optimistic concurrency
 - Soft-delete, restore, and permanent-delete state enforcement
 - Sanitized transactional outbox writes
 - Automated checks preventing sensitive values from entering outbox payloads
+- Redis-backed distributed limits for authentication and mutations
+- HMAC-protected Redis identities
+- Failed-login tracking and temporary lockouts
+- Required PostgreSQL and Redis startup checks
+- Composite readiness with a short deadline
+- Configurable HTTP and Redis timeouts
+- Context cancellation through handlers, services, and repositories
+- Safe PostgreSQL and Redis failure mapping
+- Fail-closed password-hasher behavior
+- Sanitized build diagnostics
+- Loopback-only low-cardinality metrics
 - Safe structured request logging
 - Panic recovery with generic public errors
-- PostgreSQL integration tests
+- PostgreSQL and Redis integration tests
+- Controlled dependency-outage and recovery tests
 - Race-enabled test execution
 - Static analysis and secret scanning in CI
 
@@ -189,15 +281,17 @@ The current backend includes:
 - VaultForge has not received an independent security audit.
 - Client-side vault encryption is not yet implemented.
 - Current synthetic item payloads are visible to the Go API and PostgreSQL.
-- Rate limiting and login lockouts are not yet implemented.
-- Production signing-key storage and rotation are not yet implemented.
+- Production signing-key and HMAC-key storage and rotation are not yet implemented.
 - Local development may use unencrypted HTTP and therefore omits the cookie `Secure` flag; production enables it.
+- Trusted reverse-proxy handling is not implemented; forwarded client-IP headers are intentionally ignored.
+- The internal metrics boundary currently relies on the direct peer being loopback. Production network policy and a dedicated internal listener are not implemented yet.
 - A successful cross-site scripting attack could access the in-memory access token and readable CSRF token, although not the `HttpOnly` refresh token.
 - Account recovery is not implemented.
 - Multi-factor authentication is not implemented.
 - A compromised browser could access decrypted data while a future vault is unlocked.
 - Some non-secret metadata may remain visible to backend services.
 - The temporary Go Argon2id adapter will later be replaced by a Rust gRPC service.
+- RabbitMQ publication, OpenTelemetry tracing, production deployment, and browser-side encryption remain future roadmap work.
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat model, accepted risks, and trust boundaries.
 

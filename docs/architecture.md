@@ -27,17 +27,24 @@ flowchart LR
     VH[Vault Handler]
     IH[Item Handler]
     M[Bearer Authentication Middleware]
+    RL[Redis Rate Limit and Login Protection]
     AS[Authentication Service]
     SS[Session Service]
     VS[Vault Service]
     H[Local Go Argon2id Adapter]
     T[Ed25519 Token Manager]
     P[(PostgreSQL)]
+    R[(Redis)]
     O[(Transactional Outbox)]
+    D[Diagnostics Handler]
+    MX[Metrics Registry]
 
     C -->|HTTP, JSON, and cookies| A
+    A --> MX
+    A --> D
     A --> AH
     A --> M
+    A --> RL
     M --> SH
     M --> VH
     M --> IH
@@ -54,36 +61,65 @@ flowchart LR
     SS --> P
     VS --> P
     VS --> O
+    RL --> R
 ```
+
+PostgreSQL is the durable source of truth for users, sessions, vaults, items, transactional outbox rows, and item-creation idempotency records.
+
+Redis stores only bounded, expiring operational security state for distributed request limits, failed-login counters, and temporary lockouts. Redis does not store vault data, passwords, tokens, keys, or durable idempotency records.
+
+The diagnostics handler exposes sanitized service, version, and commit metadata. The metrics registry records only bounded HTTP method, normalized Chi route pattern, status class, count, duration, in-flight requests, uptime, and sanitized build metadata.
 
 ## Current request flow
 
 ### Public authentication requests
 
-Registration and login:
+Registration:
 
 ```text
 HTTP JSON request
     ↓
 Chi router
     ↓
-Request ID, safe logging, recovery, security headers, timeout
+Bounded request ID, safe logging, metrics, recovery, security headers, timeout
+    ↓
+Redis fixed-window request limit by direct peer IP
     ↓
 Strict JSON decoder and body limit
     ↓
 Authentication handler
     ↓
-Authentication or session service
+Authentication service
     ├── PasswordHasher
-    ├── AccessTokenProvider
-    ├── RefreshTokenProvider
-    ├── UserStore
-    └── SessionStore
+    └── UserStore
           ↓
       PostgreSQL
 ```
 
+Login:
+
+```text
+HTTP JSON request
+    ↓
+Redis fixed-window request limit by direct peer IP
+    ↓
+Login lockout check by normalized email plus direct peer IP
+    ↓
+Authentication and session services
+    ├── PasswordHasher
+    ├── UserStore
+    ├── SessionStore
+    ├── AccessTokenProvider
+    └── RefreshTokenProvider
+          ↓
+      PostgreSQL session creation
+          ↓
+      Best-effort Redis failure-state clearing
+```
+
 Login returns the access token and expiration metadata in JSON. It delivers the refresh token through an `HttpOnly` cookie and a separate readable CSRF cookie.
+
+Invalid credentials increment Redis failed-login state. Reaching the configured threshold activates a temporary lockout. Redis failure blocks authentication with a safe dependency response.
 
 Refresh:
 
@@ -92,6 +128,8 @@ Bodyless HTTP request
     ├── HttpOnly refresh cookie
     ├── Readable CSRF cookie
     └── X-CSRF-Token header
+          ↓
+      Redis fixed-window request limit by direct peer IP
           ↓
       Session cookie manager
           ├── Require exactly one refresh cookie
@@ -113,25 +151,47 @@ HTTP request
     ↓
 Chi router
     ↓
-Request ID, safe logging, recovery, security headers, timeout
+Bounded request ID, safe logging, metrics, recovery, security headers, timeout
     ↓
 Bearer authentication middleware
-    ├── Parse exactly one Authorization header
+    ├── Parse exactly one bounded Authorization header
     ├── Verify Ed25519 access-token signature and claims
     ├── Confirm active session state in PostgreSQL
     └── Store the authenticated principal in request context
     ↓
-Session, vault, or item handler
-    ↓
-Domain service
-    ├── Validate input and state transitions
-    ├── Enforce ownership using the authenticated user ID
-    ├── Enforce idempotency or expected version where required
-    └── Map internal failures to safe public errors
-    ↓
-PostgreSQL transaction
-    ├── Domain mutation
-    └── Sanitized transactional outbox event
+Read request or mutation
+    ├── Read request: no Redis call during request handling
+    └── Mutation: Redis fixed-window limit by authenticated user ID
+          ↓
+      Session, vault, or item handler
+          ↓
+      Domain service
+          ├── Validate bounded input and state transitions
+          ├── Enforce ownership using the authenticated user ID
+          ├── Enforce idempotency or expected version where required
+          └── Map internal failures to safe public errors
+                ↓
+            PostgreSQL transaction
+                ├── Domain mutation
+                └── Sanitized transactional outbox event
+```
+
+### Operational requests
+
+```text
+GET /health/live
+    └── Process-only liveness, no dependency calls
+
+GET /health/ready
+    └── Two-second composite PostgreSQL and Redis ping
+
+GET /health/diagnostics
+    └── Sanitized service, version, and commit only
+
+GET /internal/metrics
+    ├── Direct peer must be IPv4 or IPv6 loopback
+    ├── Forwarded-IP headers are ignored
+    └── Prometheus text with low-cardinality labels only
 ```
 
 ## Current responsibilities
@@ -139,12 +199,12 @@ PostgreSQL transaction
 ### Go API
 
 - Exposes JSON HTTP routes.
-- Handles request validation and public error mapping.
+- Handles strict request validation, bounded inputs, and public error mapping.
 - Coordinates registration, login, refresh, authorization, and session management.
 - Creates, lists, retrieves, renames, and deletes owner-scoped vaults.
 - Creates, lists, retrieves, updates, soft-deletes, restores, and permanently deletes owner-scoped items.
 - Supports opaque keyset pagination for item collections.
-- Enforces idempotency keys for item creation.
+- Enforces PostgreSQL-backed idempotency keys for item creation.
 - Enforces strong `ETag` and `If-Match` optimistic concurrency.
 - Writes sanitized audit events through a transactional outbox.
 - Normalizes account emails.
@@ -156,7 +216,15 @@ PostgreSQL transaction
 - Enforces double-submit CSRF protection for bodyless refresh requests.
 - Rotates and clears browser session cookies.
 - Enforces active-session checks for protected requests.
-- Exposes liveness and database-backed readiness routes.
+- Applies Redis-backed distributed request limits.
+- Applies failed-login tracking and temporary lockouts.
+- Uses HMAC-protected Redis identities and ignores forwarded client-IP headers.
+- Exposes dependency-free liveness and PostgreSQL-plus-Redis readiness.
+- Exposes sanitized build diagnostics.
+- Exposes loopback-only low-cardinality HTTP metrics.
+- Applies configurable HTTP and dependency deadlines.
+- Propagates context cancellation through services and repositories.
+- Maps PostgreSQL, Redis, and password-hasher failures to safe public responses.
 - Logs safe request metadata only.
 - Accepts only synthetic item payloads until browser-side encryption is implemented.
 
@@ -219,13 +287,42 @@ Currently stores:
 - Session expiration and revocation timestamps
 - Session user-agent metadata
 - Owner-scoped vault metadata
-- Synthetic generic item payloads during the current backend phase
+- Synthetic generic item payloads during the current phase
 - Item versions, timestamps, and deletion state
 - Sanitized transactional outbox records
+- Durable item-creation idempotency records
 
 PostgreSQL never stores plaintext account passwords, raw refresh tokens, access tokens, vault passphrases, unwrapped encryption keys, or real vault secrets.
 
 The current synthetic item payload is intentionally temporary. A future browser-side encryption phase will replace it with an opaque encrypted envelope.
+
+### Redis
+
+Currently stores only:
+
+- Fixed-window request counters
+- Failed-login counters
+- Temporary login-lockout state
+
+Every Redis identity is transformed with HMAC-SHA-256 over length-prefixed parts before key construction. All records expire according to their policy.
+
+Redis never stores:
+
+- Passwords or password hashes
+- Authorization headers
+- Access or refresh tokens
+- Refresh-token digests
+- CSRF tokens
+- Signing seeds or HMAC keys
+- Database or Redis URLs
+- Vault passphrases
+- Encryption keys
+- Item payloads or vault values
+- Raw request bodies
+- Raw dependency errors
+- Raw email, IP, or user identities as key material
+
+Redis is required at startup and for registration, login, refresh, and authenticated mutations. Read-only vault and item requests do not call Redis during request handling.
 
 ## Current account registration flow
 
@@ -518,13 +615,17 @@ Planned responsibilities:
 
 ### Redis
 
-Planned responsibilities:
+Implemented responsibilities:
 
-- Rate-limit authentication and sensitive operations.
-- Track short-lived failed-login state.
-- Store bounded idempotency metadata where appropriate.
+- Rate-limit registration, login, refresh, and authenticated mutations.
+- Track short-lived failed-login counters.
+- Track temporary login-lockout state.
+- Protect identity material with HMAC-derived opaque keys.
+- Participate in readiness as a required security dependency.
 
-Redis must never store passwords, raw tokens, encryption keys, or decrypted vault data.
+Redis is not used for durable item idempotency because PostgreSQL already provides that source of truth.
+
+Future Redis use must remain limited to bounded operational metadata. Redis must never store passwords, raw tokens, encryption keys, vault payloads, decrypted data, or raw dependency errors.
 
 ### RabbitMQ and audit worker
 
@@ -582,7 +683,7 @@ Completed:
 - Owner-scoped vault lifecycle
 - Owner-scoped item lifecycle
 - Item pagination
-- Idempotent item creation
+- PostgreSQL-backed idempotent item creation
 - Optimistic concurrency with `ETag` and `If-Match`
 - Sanitized transactional outbox integration
 - Browser-safe refresh cookies and CSRF protection
@@ -594,12 +695,21 @@ Completed:
 - Session-management UI
 - Loading, empty, error, not-found, and unauthorized states
 - Vitest and React Testing Library coverage
-- Real-stack Playwright coverage with PostgreSQL
+- Real-stack Playwright coverage with PostgreSQL and Redis
 - Automated accessibility and responsive-layout checks
+- Redis client lifecycle and composite readiness
+- Distributed request limits
+- Failed-login tracking and temporary lockouts
+- Configurable HTTP and dependency timeouts
+- Context cancellation and safe dependency failure mapping
+- Request, header, query, pagination, token, and identifier bounds
+- PostgreSQL and Redis outage verification
+- Sanitized build diagnostics
+- Loopback-only low-cardinality HTTP metrics
 - Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
 Next:
 
-- Begin Redis-backed rate limiting, lockouts, and reliability controls
+- Build the broader testing and QA system.
 
-Later phases add RabbitMQ publication, observability, Rust services, browser-side encryption, deployment, and release documentation.
+Later phases add RabbitMQ publication, OpenTelemetry and operational runbooks, Rust services, browser-side encryption, production deployment, and release documentation.
