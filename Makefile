@@ -9,17 +9,24 @@ POSTGRES_SERVICE := postgres
 POSTGRES_USER := vaultforge
 POSTGRES_DATABASE := vaultforge
 POSTGRES_TEST_DATABASE := vaultforge_test
+POSTGRES_E2E_DATABASE := vaultforge_e2e
+
+E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/vaultforge_e2e?sslmode=disable
 
 .PHONY: \
 	setup \
 	setup-api \
 	setup-web \
+	setup-e2e \
 	dev \
 	dev-api \
 	dev-web \
 	test \
 	test-api \
 	test-web \
+	test-e2e \
+	verify-e2e \
+	db-reset-e2e \
 	lint \
 	lint-api \
 	lint-web \
@@ -48,13 +55,16 @@ POSTGRES_TEST_DATABASE := vaultforge_test
 	migrate-down \
 	migrate-version
 
-setup: setup-api setup-web
+setup: setup-api setup-web setup-e2e
 
 setup-api:
 	cd $(API_DIR) && go mod download
 
 setup-web:
 	cd $(WEB_DIR) && npm ci
+
+setup-e2e:
+	cd $(WEB_DIR) && npx playwright install chromium
 
 dev: dev-api
 
@@ -73,6 +83,11 @@ test-api:
 
 test-web:
 	cd $(WEB_DIR) && npm run test
+
+test-e2e: db-reset-e2e
+	cd $(WEB_DIR) && \
+		E2E_DATABASE_URL="$(E2E_DATABASE_URL)" \
+		npm run test:e2e
 
 lint: lint-api lint-web
 
@@ -108,11 +123,13 @@ build-web:
 mod-verify:
 	cd $(API_DIR) && go mod verify
 
-verify: verify-api verify-web
+verify: verify-api verify-web verify-e2e
 
 verify-api: format-check-api mod-verify lint-api test-api
 
 verify-web: format-check-web lint-web typecheck-web test-web build-web
+
+verify-e2e: test-e2e
 
 compose-up:
 	docker compose -f $(COMPOSE_FILE) up -d $(POSTGRES_SERVICE)
@@ -153,6 +170,40 @@ db-create-test:
 		-U $(POSTGRES_USER) \
 		$(POSTGRES_TEST_DATABASE)
 	@echo "Test database is ready."
+
+db-reset-e2e:
+	$(MAKE) compose-up
+	@echo "Waiting for PostgreSQL..."
+	@until docker compose -f $(COMPOSE_FILE) exec -T $(POSTGRES_SERVICE) \
+		pg_isready \
+		-U $(POSTGRES_USER) \
+		-d $(POSTGRES_DATABASE) >/dev/null 2>&1; do \
+			sleep 1; \
+	done
+	@docker compose -f $(COMPOSE_FILE) exec -T $(POSTGRES_SERVICE) \
+		dropdb \
+		-U $(POSTGRES_USER) \
+		--if-exists \
+		--force \
+		$(POSTGRES_E2E_DATABASE)
+	@docker compose -f $(COMPOSE_FILE) exec -T $(POSTGRES_SERVICE) \
+		createdb \
+		-U $(POSTGRES_USER) \
+		$(POSTGRES_E2E_DATABASE)
+	@for migration in $$(find $(MIGRATIONS_DIR) \
+		-maxdepth 1 \
+		-type f \
+		-name '*.up.sql' \
+		| sort); do \
+			echo "Applying $$migration"; \
+			docker compose -f $(COMPOSE_FILE) exec -T $(POSTGRES_SERVICE) \
+				psql \
+				-v ON_ERROR_STOP=1 \
+				-U $(POSTGRES_USER) \
+				-d $(POSTGRES_E2E_DATABASE) \
+				< "$$migration"; \
+	done
+	@echo "E2E database is ready."
 
 db-shell:
 	docker compose -f $(COMPOSE_FILE) exec $(POSTGRES_SERVICE) \
