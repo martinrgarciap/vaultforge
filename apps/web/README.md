@@ -225,6 +225,13 @@ The real-stack Playwright workflow covers:
 - axe accessibility scans
 - Phone, tablet, and desktop overflow checks
 
+This Playwright workflow is the official VaultForge complete-stack smoke test.
+It replaces the need for a second Postman or command-line smoke workflow and is
+run by both `make verify` and GitHub Actions.
+
+See [`../../docs/testing.md`](../../docs/testing.md) for the complete testing
+and QA strategy.
+
 Synthetic data is generated uniquely for each Playwright run.
 
 ## Security boundary
@@ -263,4 +270,5 @@ Use synthetic vault data only. Current item payloads are visible to the Go API a
 - [`../api/README.md`](../api/README.md)
 - [`../../SECURITY.md`](../../SECURITY.md)
 - [`../../docs/architecture.md`](../../docs/architecture.md)
+- [`../../docs/testing.md`](../../docs/testing.md)
 - [`../../docs/threat-model.md`](../../docs/threat-model.md)

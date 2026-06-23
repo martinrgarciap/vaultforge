@@ -706,10 +706,16 @@ Completed:
 - PostgreSQL and Redis outage verification
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
+- Maintained OpenAPI contract for the current HTTP API
+- Automated synchronization checks between OpenAPI and Chi routes
+- Representative OpenAPI request and response validation
+- Focused fuzz tests for cursors, item versions, and bearer tokens
+- Documented testing ownership and security-safe fixture policy
+- Official real-stack Playwright system smoke test
 - Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
 Next:
 
-- Build the broader testing and QA system.
+- Add RabbitMQ audit and notification workflows.
 
 Later phases add RabbitMQ publication, OpenTelemetry and operational runbooks, Rust services, browser-side encryption, production deployment, and release documentation.

@@ -1,0 +1,1035 @@
+openapi: 3.0.3
+info:
+  title: VaultForge API
+  version: 0.9.0
+  description: |
+    HTTP contract for the current VaultForge portfolio application.
+    Vault item payloads are synthetic and remain visible to the API and PostgreSQL
+    until the future browser-encryption phase is complete.
+servers:
+  - url: http://localhost:8080
+    description: Local development API
+
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Sessions
+  - name: Vaults
+  - name: Items
+  - name: Internal
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Health]
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOK'
+
+  /health/live:
+    get:
+      operationId: getLiveness
+      tags: [Health]
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOK'
+
+  /health/ready:
+    get:
+      operationId: getReadiness
+      tags: [Health]
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOK'
+        '503':
+          description: PostgreSQL or Redis is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/diagnostics:
+    get:
+      operationId: getDiagnostics
+      tags: [Health]
+      responses:
+        '200':
+          description: Sanitized build metadata.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticsResponse'
+
+  /internal/metrics:
+    get:
+      operationId: getInternalMetrics
+      tags: [Internal]
+      description: Available only when the direct peer is loopback.
+      responses:
+        '200':
+          description: Prometheus text exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/auth/register:
+    post:
+      operationId: registerAccount
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsRequest'
+      responses:
+        '201':
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/auth/login:
+    post:
+      operationId: loginAccount
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsRequest'
+      responses:
+        '200':
+          description: Session created. Refresh and CSRF cookies are also set.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/auth/refresh:
+    post:
+      operationId: refreshSession
+      tags: [Authentication]
+      parameters:
+        - $ref: '#/components/parameters/RefreshCookie'
+        - $ref: '#/components/parameters/CSRFCookie'
+        - $ref: '#/components/parameters/CSRFHeader'
+      responses:
+        '200':
+          description: Access token refreshed and browser cookies rotated.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/sessions:
+    get:
+      operationId: listSessions
+      tags: [Sessions]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active session families.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    delete:
+      operationId: logoutAllSessions
+      tags: [Sessions]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/sessions/current:
+    delete:
+      operationId: logoutCurrentSession
+      tags: [Sessions]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/sessions/{sessionID}:
+    parameters:
+      - $ref: '#/components/parameters/SessionID'
+    delete:
+      operationId: revokeSession
+      tags: [Sessions]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults:
+    get:
+      operationId: listVaults
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Owner-scoped vault list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    post:
+      operationId: createVault
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultNameRequest'
+      responses:
+        '201':
+          description: Vault created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+
+    get:
+      operationId: getVault
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Owner-scoped vault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    patch:
+      operationId: renameVault
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultNameRequest'
+      responses:
+        '200':
+          description: Renamed vault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    delete:
+      operationId: deleteVault
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}/items:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+
+    get:
+      operationId: listItems
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ItemState'
+        - $ref: '#/components/parameters/ItemLimit'
+        - $ref: '#/components/parameters/ItemCursor'
+      responses:
+        '200':
+          description: Keyset-paginated owner-scoped item list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemListResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    post:
+      operationId: createItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemWriteRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ItemCreated'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}/items/{itemID}:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+      - $ref: '#/components/parameters/ItemID'
+
+    get:
+      operationId: getItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ItemState'
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemOK'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    put:
+      operationId: updateItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemWriteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemOK'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '412':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+    delete:
+      operationId: softDeleteItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemOK'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '412':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}/items/{itemID}/restore:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+      - $ref: '#/components/parameters/ItemID'
+
+    post:
+      operationId: restoreItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemOK'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '412':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}/items/{itemID}/permanent:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+      - $ref: '#/components/parameters/ItemID'
+
+    delete:
+      operationId: permanentlyDeleteItem
+      tags: [Items]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '412':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    RefreshCookie:
+      name: vaultforge_refresh
+      in: cookie
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
+    CSRFCookie:
+      name: vaultforge_csrf
+      in: cookie
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
+    CSRFHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
+    SessionID:
+      name: sessionID
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 256
+
+    VaultID:
+      name: vaultID
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 256
+
+    ItemID:
+      name: itemID
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 256
+
+    ItemState:
+      name: state
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [active, deleted]
+
+    ItemLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+
+    ItemCursor:
+      name: after
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 1024
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Strong quoted positive item version such as `"3"`.
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 32
+        pattern: '^"[1-9][0-9]*"$'
+
+  responses:
+    HealthOK:
+      description: Process or dependency health response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HealthResponse'
+
+    ErrorResponse:
+      description: Safe public error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+    RateLimitedResponse:
+      description: Request limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+    NoContent:
+      description: Operation completed with no response body.
+
+    ItemCreated:
+      description: Item created or replayed from durable idempotency state.
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ItemResponse'
+
+    ItemOK:
+      description: Current item representation.
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ItemResponse'
+
+  headers:
+    ETag:
+      description: Strong quoted item version.
+      schema:
+        type: string
+        pattern: '^"[1-9][0-9]*"$'
+
+  schemas:
+    CredentialsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 15
+          maxLength: 128
+
+    Account:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - email
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AccountResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - user
+      properties:
+        user:
+          $ref: '#/components/schemas/Account'
+
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - user
+        - tokenType
+        - accessToken
+        - accessTokenExpiresAt
+        - refreshTokenExpiresAt
+      properties:
+        user:
+          $ref: '#/components/schemas/Account'
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+        accessToken:
+          type: string
+          minLength: 1
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+
+    RefreshResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - tokenType
+        - accessToken
+        - accessTokenExpiresAt
+        - refreshTokenExpiresAt
+      properties:
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+        accessToken:
+          type: string
+          minLength: 1
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              minLength: 1
+            message:
+              type: string
+              minLength: 1
+            request_id:
+              type: string
+              minLength: 1
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - environment
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - unavailable
+        environment:
+          type: string
+          minLength: 1
+
+    DiagnosticsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - service
+        - version
+        - commit
+      properties:
+        service:
+          type: string
+          enum:
+            - vaultforge-api
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        commit:
+          type: string
+          minLength: 1
+          maxLength: 64
+
+    Session:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - userAgent
+        - createdAt
+        - expiresAt
+        - current
+      properties:
+        id:
+          type: string
+        userAgent:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+
+    SessionListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+
+    VaultNameRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    Vault:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        cryptoVersion:
+          type: integer
+          format: int32
+          nullable: true
+        kdfVersion:
+          type: integer
+          format: int32
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    VaultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - vault
+      properties:
+        vault:
+          $ref: '#/components/schemas/Vault'
+
+    VaultListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - vaults
+      properties:
+        vaults:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vault'
+
+    ItemType:
+      type: string
+      enum:
+        - login
+        - api_key
+        - environment_variable
+        - database_connection
+        - secure_note
+
+    ItemWriteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - payload
+      properties:
+        type:
+          $ref: '#/components/schemas/ItemType'
+        payload:
+          type: object
+          additionalProperties: true
+
+    Item:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - payload
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ItemType'
+        payload:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ItemResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - item
+      properties:
+        item:
+          $ref: '#/components/schemas/Item'
+
+    ItemListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        nextCursor:
+          type: string
+          minLength: 1
+          maxLength: 1024

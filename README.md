@@ -160,6 +160,7 @@ vaultforge/
 ├── docs/
 │   ├── architecture.md
 │   ├── scope.md
+│   ├── testing.md
 │   └── threat-model.md
 ├── Makefile
 ├── README.md
@@ -383,6 +384,19 @@ Run the complete local verification suite:
 ```bash
 make verify
 ```
+
+The maintained API contract is [`apps/api/openapi.yaml`](apps/api/openapi.yaml).
+The Go test suite validates the document, checks it against the registered Chi
+routes, and validates representative requests and responses. Focused fuzz tests
+cover item cursors, strong item versions, and bearer-token parsing.
+
+The Playwright real-stack workflow is the official VaultForge system smoke test.
+It exercises the React client, Go API, PostgreSQL, and Redis through the complete
+account, vault, item, conflict, deletion, restoration, session, and logout
+workflow.
+
+See [`docs/testing.md`](docs/testing.md) for test ownership, security rules,
+optional fuzzing commands, and the complete QA strategy.
 
 `make verify` runs:
 

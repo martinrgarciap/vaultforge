@@ -1037,6 +1037,31 @@ make verify
 
 GitHub Actions runs Go checks with PostgreSQL and Redis, web checks, browser E2E with PostgreSQL and Redis, and Gitleaks secret scanning for pushed commits and pull requests.
 
+## API contract and fuzz testing
+
+The maintained OpenAPI contract is:
+
+```text
+openapi.yaml
+```
+
+`internal/api/openapi_contract_test.go` validates the document, compares its
+routes and methods with the real Chi router, and validates representative
+authentication, vault, item, concurrency, and error requests and responses.
+
+The normal Go test suite also runs the seed corpus for focused fuzz tests
+covering:
+
+- Item cursor decoding
+- Strong `ETag` and `If-Match` parsing
+- Bearer-token parsing
+
+These checks run through `make test-api`, `make verify`, and the Go GitHub
+Actions job.
+
+See [`../../docs/testing.md`](../../docs/testing.md) for the complete testing
+strategy and optional deeper fuzzing commands.
+
 ## Security rules
 
 Never log, meter, store in Redis, or return outside the documented authentication response and cookie transport:
