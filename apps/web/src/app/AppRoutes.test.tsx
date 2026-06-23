@@ -52,7 +52,7 @@ describe("AppRoutes", () => {
     ["/register", "Create your account"],
     ["/login", "Sign in"],
     ["/vaults", "Your Vaults"],
-    ["/sessions", "Active sessions"],
+    ["/sessions", "Active Sessions"],
   ])("renders %s", (path, heading) => {
     renderRoute(path);
 

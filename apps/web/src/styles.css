@@ -1385,3 +1385,156 @@ a {
     white-space: normal;
   }
 }
+
+.session-page-intro {
+  margin: 0 0 1.5rem;
+  color: #526078;
+}
+
+.session-table-container {
+  overflow-x: auto;
+  margin-top: 1.5rem;
+  background: #ffffff;
+  border: 1px solid #d7dee8;
+  border-radius: 0.6rem;
+}
+
+.session-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.session-table th,
+.session-table td {
+  padding: 0.9rem 1rem;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid #e1e6ed;
+}
+
+.session-table th {
+  color: #59677d;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  background: #f4f6f9;
+  text-transform: uppercase;
+}
+
+.session-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.session-client {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 13rem;
+}
+
+.session-client-name {
+  color: #172033;
+  font-weight: 750;
+}
+
+.session-user-agent {
+  display: block;
+  max-width: 24rem;
+  overflow: hidden;
+  color: #66738a;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-status-current,
+.session-status-active {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 750;
+  border-radius: 999px;
+}
+
+.session-status-current {
+  color: #294e88;
+  background: #edf3fc;
+}
+
+.session-status-active {
+  color: #17603a;
+  background: #e9f8ef;
+}
+
+.session-action-cell {
+  text-align: right !important;
+}
+
+.session-action-button {
+  white-space: nowrap;
+}
+
+@media (max-width: 850px) {
+  .session-table thead {
+    display: none;
+  }
+
+  .session-table,
+  .session-table tbody,
+  .session-table tr,
+  .session-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .session-table tr {
+    padding: 0.75rem;
+    border-bottom: 1px solid #d8dfe8;
+  }
+
+  .session-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .session-table td {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.5rem 0.25rem;
+    border: 0;
+  }
+
+  .session-table td::before {
+    color: #66738a;
+    font-size: 0.75rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    content: attr(data-label);
+  }
+
+  .session-action-cell {
+    text-align: left !important;
+  }
+
+  .session-action-button {
+    width: fit-content;
+  }
+
+  .session-user-agent {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 700px) {
+  .session-table td {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .session-action-button {
+    width: 100%;
+  }
+}

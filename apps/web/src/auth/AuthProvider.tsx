@@ -16,7 +16,7 @@ import {
   parseRegisterResponse,
 } from "./contracts";
 import { readCSRFToken } from "./csrf";
-import type { AuthContextValue, AuthStatus } from "./types";
+import type { AuthContextValue, AuthStatus, LogoutOptions } from "./types";
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -178,17 +178,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [clearAuthentication, refreshAccessToken],
   );
 
-  const logout = useCallback(async (): Promise<void> => {
-    try {
-      if (accessTokenRef.current || readCSRFToken()) {
-        await authenticatedRequest<void>("/v1/sessions/current", {
-          method: "DELETE",
-        });
+  const logout = useCallback(
+    async (options: LogoutOptions = {}): Promise<void> => {
+      const revokeServerSession = options.revokeServerSession ?? true;
+
+      try {
+        if (
+          revokeServerSession &&
+          (accessTokenRef.current || readCSRFToken())
+        ) {
+          await authenticatedRequest<void>("/v1/sessions/current", {
+            method: "DELETE",
+          });
+        }
+      } finally {
+        clearAuthentication();
       }
-    } finally {
-      clearAuthentication();
-    }
-  }, [authenticatedRequest, clearAuthentication]);
+    },
+    [authenticatedRequest, clearAuthentication],
+  );
 
   useEffect(() => {
     if (status !== "restoring" || restorationStartedRef.current) {

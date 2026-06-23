@@ -121,6 +121,14 @@ function TestConsumer() {
     void auth.logout().catch(() => undefined);
   };
 
+  const clearLocalAuthentication = () => {
+    void auth
+      .logout({
+        revokeServerSession: false,
+      })
+      .catch(() => undefined);
+  };
+
   return (
     <>
       <div data-testid="status">{auth.status}</div>
@@ -141,6 +149,10 @@ function TestConsumer() {
 
       <button type="button" onClick={logout}>
         Logout
+      </button>
+
+      <button type="button" onClick={clearLocalAuthentication}>
+        Clear local authentication
       </button>
     </>
   );
@@ -369,5 +381,32 @@ describe("AuthProvider", () => {
     expect(logoutHeaders.get("Authorization")).toBe(
       "Bearer login-access-token",
     );
+  });
+
+  it("clears local authentication without another server logout", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(loginResponse()));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderProvider();
+
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    await screen.findByText("authenticated");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Clear local authentication",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated");
+    });
+
+    expect(screen.getByTestId("account")).toHaveTextContent("none");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
