@@ -20,8 +20,8 @@ graph LR
     B -. "future browser encryption" .-> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
     A -. "planned" .-> H["Rust gRPC Hashing Service"]
-    A -. "planned" .-> Q["RabbitMQ"]
-    A -. "planned" .-> O["OpenTelemetry"]
+    A -. "optional later" .-> Q["RabbitMQ"]
+    A --> O["OpenTelemetry"]
 ```
 
 The current React client exercises the complete user-facing authentication, session, vault, and item workflows through relative API URLs. Vite proxies `/v1` and `/health` to the Go API during development.
@@ -46,7 +46,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-RabbitMQ publishing, OpenTelemetry, Rust services, WebAssembly cryptography, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. RabbitMQ publishing remains an optional later extension. Rust services, WebAssembly cryptography, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -109,6 +109,8 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Bounded and sanitized request IDs
 - Sanitized build version and commit diagnostics
 - Loopback-only Prometheus-text HTTP metrics using normalized route patterns
+- Optional OpenTelemetry traces for normalized HTTP routes, PostgreSQL operations, and Redis operations
+- Trace IDs correlated with safe structured request logs
 - Generic credential, token, ownership, dependency, and not-found responses
 - Safe structured logging
 - Unit, route, service, store, PostgreSQL integration, Redis integration, outage, and race tests
@@ -146,7 +148,9 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - **Frontend testing:** Vitest, React Testing Library, Playwright, axe
 - **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
-- **Planned:** RabbitMQ, OpenTelemetry, Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
+- **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
+- **Planned:** Rust gRPC, Rust WebAssembly, Docker application images, Kubernetes
+- **Optional later:** RabbitMQ and asynchronous audit or notification workers
 
 ## Repository structure
 
@@ -156,9 +160,11 @@ vaultforge/
 │   ├── api/                 # Go HTTP API
 │   └── web/                 # React and TypeScript client
 ├── deployments/
-│   └── compose.yaml         # Local PostgreSQL and Redis
+│   ├── compose.yaml         # Local PostgreSQL, Redis, Collector, and Jaeger
+│   └── otel-collector.yaml  # Local trace pipeline
 ├── docs/
 │   ├── architecture.md
+│   ├── runbook.md
 │   ├── scope.md
 │   ├── testing.md
 │   └── threat-model.md
@@ -265,6 +271,38 @@ http://localhost:5173
 ```
 
 During development, Vite proxies `/v1` and `/health` to the Go API. The browser client uses relative API URLs.
+
+## Optional local tracing
+
+Tracing is disabled by default and is not required for normal development.
+
+Start the OpenTelemetry Collector and Jaeger:
+
+```bash
+make observability-up
+```
+
+Run the API with tracing enabled:
+
+```bash
+OTEL_TRACING_ENABLED=true \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+make dev-api
+```
+
+Generate a request and open Jaeger at:
+
+```text
+http://localhost:16686
+```
+
+VaultForge exports normalized HTTP spans plus PostgreSQL and Redis operation
+spans. It does not export raw paths, query strings, SQL statements, SQL
+parameters, Redis commands, Redis keys, request bodies, tokens, cookies, or
+vault payloads.
+
+See [`docs/runbook.md`](docs/runbook.md) for startup, troubleshooting, and safe
+operational-data rules.
 
 ## Browser routes
 
@@ -439,7 +477,9 @@ Focused backend tests also verify:
 - PostgreSQL and Redis outage behavior and recovery
 - Request deadlines and cancellation propagation
 - Bounded headers, bodies, queries, tokens, cursors, and identifiers
-- Diagnostics and metrics never expose secrets or resource identifiers
+- Diagnostics, metrics, and traces never expose secrets or raw resource identifiers
+- OpenTelemetry spans use normalized routes and sanitized dependency operation names
+- Request logs correlate safe request IDs with trace IDs
 
 GitHub Actions runs four jobs:
 
@@ -466,6 +506,8 @@ VaultForge must never log, meter, cache, or expose outside the documented authen
 - Encryption keys
 - Vault payloads or decrypted vault data
 - Raw dependency error strings
+- Raw URLs, query strings, SQL statements, SQL parameters, Redis commands, Redis keys, or Redis values in telemetry
+- Raw resource identifiers in trace names or attributes
 
 The browser must never persist access tokens in:
 
@@ -486,6 +528,7 @@ See:
 
 - [`SECURITY.md`](SECURITY.md)
 - [`docs/architecture.md`](docs/architecture.md)
+- [`docs/runbook.md`](docs/runbook.md)
 - [`docs/threat-model.md`](docs/threat-model.md)
 - [`docs/scope.md`](docs/scope.md)
 

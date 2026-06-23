@@ -38,9 +38,15 @@ flowchart LR
     O[(Transactional Outbox)]
     D[Diagnostics Handler]
     MX[Metrics Registry]
+    TR[OpenTelemetry Tracing]
+    OC[OpenTelemetry Collector]
+    J[Jaeger]
 
     C -->|HTTP, JSON, and cookies| A
     A --> MX
+    A --> TR
+    TR --> OC
+    OC --> J
     A --> D
     A --> AH
     A --> M
@@ -70,6 +76,8 @@ Redis stores only bounded, expiring operational security state for distributed r
 
 The diagnostics handler exposes sanitized service, version, and commit metadata. The metrics registry records only bounded HTTP method, normalized Chi route pattern, status class, count, duration, in-flight requests, uptime, and sanitized build metadata.
 
+Optional OpenTelemetry tracing exports normalized HTTP spans plus sanitized PostgreSQL and Redis operation spans through a local Collector to Jaeger. Raw paths, query strings, request bodies, SQL statements, SQL parameters, Redis commands, Redis keys, Redis values, and resource identifiers are excluded.
+
 ## Current request flow
 
 ### Public authentication requests
@@ -81,7 +89,7 @@ HTTP JSON request
     ↓
 Chi router
     ↓
-Bounded request ID, safe logging, metrics, recovery, security headers, timeout
+Bounded request ID, safe tracing, safe logging, metrics, recovery, security headers, timeout
     ↓
 Redis fixed-window request limit by direct peer IP
     ↓
@@ -151,7 +159,7 @@ HTTP request
     ↓
 Chi router
     ↓
-Bounded request ID, safe logging, metrics, recovery, security headers, timeout
+Bounded request ID, safe tracing, safe logging, metrics, recovery, security headers, timeout
     ↓
 Bearer authentication middleware
     ├── Parse exactly one bounded Authorization header
@@ -192,6 +200,12 @@ GET /internal/metrics
     ├── Direct peer must be IPv4 or IPv6 loopback
     ├── Forwarded-IP headers are ignored
     └── Prometheus text with low-cardinality labels only
+
+Optional trace export
+    ├── Disabled by default
+    ├── OTLP over HTTP to the local Collector
+    ├── Collector forwards OTLP to Jaeger
+    └── Export failure does not fail application requests
 ```
 
 ## Current responsibilities
@@ -222,6 +236,8 @@ GET /internal/metrics
 - Exposes dependency-free liveness and PostgreSQL-plus-Redis readiness.
 - Exposes sanitized build diagnostics.
 - Exposes loopback-only low-cardinality HTTP metrics.
+- Exports optional normalized HTTP, PostgreSQL, and Redis traces.
+- Correlates safe request logs with trace IDs.
 - Applies configurable HTTP and dependency deadlines.
 - Propagates context cancellation through services and repositories.
 - Maps PostgreSQL, Redis, and password-hasher failures to safe public responses.
@@ -528,8 +544,8 @@ flowchart LR
     A -->|Hash and Verify over gRPC| H
     A --> P
     A --> R
-    A --> Q
-    Q --> K
+    A -. optional later .-> Q
+    Q -. optional later .-> K
     A --> O
     H --> O
     K --> O
@@ -629,7 +645,7 @@ Future Redis use must remain limited to bounded operational metadata. Redis must
 
 ### RabbitMQ and audit worker
 
-Planned responsibilities:
+Optional later responsibilities:
 
 - Publish sanitized events from a transactional outbox.
 - Process events idempotently.
@@ -660,8 +676,8 @@ apps/api                Go HTTP API
 apps/web                React and TypeScript browser client
 services/hash-service   Planned Rust gRPC hashing service
 packages/proto          Planned shared Protocol Buffer contracts
-deployments             Compose and later Kubernetes configuration
-docs                    Architecture, threat model, decisions, and runbooks
+deployments             Compose, local OpenTelemetry, and later Kubernetes configuration
+docs                    Architecture, threat model, testing policy, and runbooks
 ```
 
 ## Current roadmap position
@@ -712,10 +728,14 @@ Completed:
 - Focused fuzz tests for cursors, item versions, and bearer tokens
 - Documented testing ownership and security-safe fixture policy
 - Official real-stack Playwright system smoke test
+- Optional OpenTelemetry HTTP, PostgreSQL, and Redis tracing
+- Local OpenTelemetry Collector and Jaeger trace viewing
+- Safe trace-to-log correlation and telemetry redaction tests
+- Operational runbook for current dependencies and tracing
 - Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
 Next:
 
-- Add RabbitMQ audit and notification workflows.
+- Build and integrate the Rust gRPC password-hashing service.
 
-Later phases add RabbitMQ publication, OpenTelemetry and operational runbooks, Rust services, browser-side encryption, production deployment, and release documentation.
+Later core phases add browser-side encryption, ciphertext-only persistence, production deployment, and release documentation. RabbitMQ publication and an audit worker remain an optional end-of-project extension.

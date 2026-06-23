@@ -5,6 +5,7 @@ import (
 	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -25,14 +26,23 @@ func RequestLogger(
 
 			next.ServeHTTP(responseWriter, r)
 
-			logger.Infow(
-				"HTTP request completed",
+			fields := []any{
 				"method", r.Method,
-				"path", r.URL.Path,
+				"route", normalizedRoute(r),
 				"status", responseWriter.Status(),
 				"bytes", responseWriter.BytesWritten(),
 				"duration_ms", time.Since(startedAt).Milliseconds(),
 				"request_id", chimiddleware.GetReqID(r.Context()),
+			}
+
+			spanContext := trace.SpanContextFromContext(r.Context())
+			if spanContext.IsValid() {
+				fields = append(fields, "trace_id", spanContext.TraceID().String())
+			}
+
+			logger.Infow(
+				"HTTP request completed",
+				fields...,
 			)
 		})
 	}

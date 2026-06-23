@@ -20,6 +20,8 @@ The current implementation includes:
 - Idempotency keys for item creation
 - Strong `ETag` and `If-Match` optimistic concurrency
 - Sanitized transactional outbox writes
+- Optional OpenTelemetry tracing for HTTP, PostgreSQL, and Redis
+- Trace IDs correlated with safe request logs
 - Strict JSON decoding, safe public errors, request logging, panic recovery, and security headers
 
 ## Architecture
@@ -31,7 +33,8 @@ Chi router
     ↓
 Global middleware
     ├── Bounded request ID
-    ├── Safe request logging
+    ├── Safe OpenTelemetry request span
+    ├── Safe request logging with trace correlation
     ├── Low-cardinality HTTP metrics
     ├── Panic recovery
     ├── Security headers
@@ -102,6 +105,7 @@ apps/api/
 │   ├── redisclient/          # Redis configuration, lifecycle, ping, and script execution
 │   ├── session/              # Tokens, login, refresh, authentication, and sessions
 │   ├── store/                # PostgreSQL stores and transactional operations
+│   ├── telemetry/            # Optional OpenTelemetry configuration and provider
 │   └── vault/                # Vault and item domain services and contracts
 └── migrations/               # Versioned SQL migrations
 ```
@@ -154,6 +158,48 @@ Default API address:
 ```text
 http://localhost:8080
 ```
+
+## Optional OpenTelemetry tracing
+
+Tracing is disabled by default.
+
+Start the local trace pipeline from the repository root:
+
+```bash
+make observability-up
+```
+
+Run the API with tracing enabled:
+
+```bash
+OTEL_TRACING_ENABLED=true \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+make dev-api
+```
+
+Open Jaeger at:
+
+```text
+http://localhost:16686
+```
+
+The API exports:
+
+- One server span per HTTP request
+- Normalized Chi route patterns instead of raw request paths
+- Sanitized PostgreSQL operation spans such as `postgres.select`
+- Redis operation spans with command statements, keys, and values disabled
+- Trace IDs in safe request logs
+
+The API does not export request bodies, query strings, authorization headers,
+cookies, tokens, SQL statements, SQL parameters, Redis commands, Redis keys,
+Redis values, vault payloads, or raw resource identifiers.
+
+Collector or Jaeger failure does not fail normal API requests. Export failures
+produce only a generic warning without endpoint or payload details.
+
+See [`../../docs/runbook.md`](../../docs/runbook.md) for the local trace workflow
+and troubleshooting procedures.
 
 ## Health and operational routes
 
@@ -1002,8 +1048,9 @@ The integration suite:
 13. Verifies Redis keys and values contain no raw identities or secret markers.
 14. Verifies request deadlines, cancellation, dependency errors, and input bounds.
 15. Verifies build diagnostics and metrics remain sanitized and race-safe.
-16. Verifies cross-user ownership isolation and immediate invalidation of revoked access tokens.
-17. Rolls the test database back to version zero.
+16. Verifies OpenTelemetry configuration, normalized route spans, trace correlation, and telemetry redaction.
+17. Verifies cross-user ownership isolation and immediate invalidation of revoked access tokens.
+18. Rolls the test database back to version zero.
 
 Controlled runtime scripts additionally verify PostgreSQL outage and recovery, Redis outage and recovery, diagnostics metadata, normalized metrics routes, and secret exclusion.
 
@@ -1078,6 +1125,8 @@ Never log, meter, store in Redis, or return outside the documented authenticatio
 - Signing seeds or private keys
 - Rate-limit identity HMAC keys
 - Raw rate-limit identities
+- Raw URLs, query strings, SQL statements, SQL parameters, Redis commands, Redis keys, or Redis values in telemetry
+- Raw vault, item, session, user, email, or IP identifiers in span names or attributes
 - Vault passphrases
 - Encryption keys
 - Item payloads or decrypted vault contents

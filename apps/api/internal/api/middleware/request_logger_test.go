@@ -8,135 +8,128 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestRequestLoggerLogsRequestDetailsWithoutSecrets(t *testing.T) {
+func TestRequestLoggerLogsSafeRequestDetails(t *testing.T) {
 	core, observedLogs := observer.New(zap.InfoLevel)
 	logger := zap.New(core).Sugar()
 
 	responseBody := `{"status":"created"}`
 
-	nextHandler := http.HandlerFunc(func(
-		w http.ResponseWriter,
-		r *http.Request,
-	) {
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 
 		if _, err := w.Write([]byte(responseBody)); err != nil {
-			t.Fatalf("failed to write test response: %v", err)
+			t.Fatalf("write test response: %v", err)
 		}
 	})
 
-	handler := chimiddleware.RequestID(
-		RequestLogger(logger)(nextHandler),
-	)
-
-	requestBody := strings.NewReader(
-		`{"password":"never-log-this","vault_value":"secret-value"}`,
-	)
+	router := chi.NewRouter()
+	router.Use(chimiddleware.RequestID)
+	router.Use(RequestLogger(logger))
+	router.Post("/vaults", nextHandler)
 
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/vaults?include=metadata",
-		requestBody,
+		strings.NewReader(`{"password":"never-log-this","vault_value":"secret-value"}`),
 	)
 
-	request.Header.Set(
-		"Authorization",
-		"Bearer super-secret-token",
+	request.Header.Set("Authorization", "Bearer super-secret-token")
+
+	traceID, err := oteltrace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("create trace ID: %v", err)
+	}
+
+	spanID, err := oteltrace.SpanIDFromHex("0123456789abcdef")
+	if err != nil {
+		t.Fatalf("create span ID: %v", err)
+	}
+
+	spanContext := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+	})
+
+	request = request.WithContext(
+		oteltrace.ContextWithSpanContext(request.Context(), spanContext),
 	)
 
 	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, request)
+	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusCreated {
-		t.Fatalf(
-			"expected status %d, got %d",
-			http.StatusCreated,
-			recorder.Code,
-		)
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusCreated)
 	}
 
 	entries := observedLogs.All()
-
 	if len(entries) != 1 {
-		t.Fatalf(
-			"expected 1 log entry, got %d",
-			len(entries),
-		)
+		t.Fatalf("log entry count = %d, want 1", len(entries))
 	}
 
 	entry := entries[0]
-
 	if entry.Message != "HTTP request completed" {
-		t.Errorf(
-			"expected log message %q, got %q",
-			"HTTP request completed",
-			entry.Message,
-		)
+		t.Fatalf("message = %q", entry.Message)
 	}
 
 	fields := entry.ContextMap()
 
 	if fields["method"] != http.MethodPost {
-		t.Errorf(
-			"expected method POST, got %v",
-			fields["method"],
-		)
+		t.Fatalf("method = %v", fields["method"])
 	}
 
-	if fields["path"] != "/vaults" {
-		t.Errorf(
-			"expected path /vaults, got %v",
-			fields["path"],
-		)
+	if fields["route"] != "/vaults" {
+		t.Fatalf("route = %v", fields["route"])
+	}
+
+	if _, exists := fields["path"]; exists {
+		t.Fatal("raw path field was logged")
 	}
 
 	if fmt.Sprint(fields["status"]) != "201" {
-		t.Errorf(
-			"expected status 201, got %v",
-			fields["status"],
-		)
+		t.Fatalf("status = %v", fields["status"])
+	}
+
+	if fields["trace_id"] != traceID.String() {
+		t.Fatalf("trace ID = %v", fields["trace_id"])
 	}
 
 	requestID, ok := fields["request_id"].(string)
 	if !ok || requestID == "" {
-		t.Error("expected log entry to contain a request ID")
+		t.Fatal("request ID was missing")
 	}
 
 	if _, exists := fields["duration_ms"]; !exists {
-		t.Error("expected log entry to contain duration_ms")
+		t.Fatal("duration_ms was missing")
 	}
 
 	if _, exists := fields["bytes"]; !exists {
-		t.Error("expected log entry to contain bytes")
+		t.Fatal("bytes was missing")
 	}
 
 	encodedFields, err := json.Marshal(fields)
 	if err != nil {
-		t.Fatalf("failed to encode log fields: %v", err)
+		t.Fatalf("encode log fields: %v", err)
 	}
 
 	logOutput := entry.Message + string(encodedFields)
 
-	sensitiveValues := []string{
+	for _, forbidden := range []string{
 		"super-secret-token",
 		"never-log-this",
 		"secret-value",
 		"include=metadata",
-	}
-
-	for _, value := range sensitiveValues {
-		if strings.Contains(logOutput, value) {
-			t.Errorf(
-				"sensitive value %q was written to logs",
-				value,
-			)
+	} {
+		if strings.Contains(logOutput, forbidden) {
+			t.Fatalf("log exposed %q", forbidden)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	redislogging "github.com/redis/go-redis/v9/logging"
 )
@@ -24,6 +25,17 @@ func New(ctx context.Context, config Config) (*Client, error) {
 	}
 
 	client := redis.NewClient(options)
+
+	if err := redisotel.InstrumentTracing(
+		client,
+		redisotel.WithCallerEnabled(false),
+		redisotel.WithDBStatement(false),
+		redisotel.WithCommandFilter(redisotel.DefaultCommandFilter),
+	); err != nil {
+		_ = client.Close()
+
+		return nil, errors.New("unable to initialize Redis tracing")
+	}
 
 	if err := client.Ping(ctx).Err(); err != nil {
 		_ = client.Close()

@@ -43,6 +43,7 @@ HTTP tests cover:
 - Panic recovery
 - Rate-limit enforcement
 - Loopback-only internal routes
+- Normalized OpenTelemetry route spans and trace correlation
 - Body, header, query, token, cursor, and identifier bounds
 
 ### PostgreSQL integration tests
@@ -134,6 +135,23 @@ go test ./internal/api/middleware \
 
 Long-running fuzzing is optional and is not required for every commit.
 
+### Telemetry tests
+
+OpenTelemetry tests verify:
+
+- Tracing is disabled by default
+- Enabled endpoints are validated without exposing credentials
+- HTTP spans use normalized Chi route patterns
+- Raw paths, query strings, authorization values, and resource identifiers are
+  excluded from spans
+- PostgreSQL span names expose only high-level operation types
+- Redis tracing disables command statements, keys, and values
+- Request logs include trace IDs only when a valid span context exists
+- Export failures use generic warnings
+
+The tests use in-memory span exporters and do not require the local Collector or
+Jaeger containers.
+
 ### Frontend unit and component tests
 
 Vitest and React Testing Library cover:
@@ -198,7 +216,8 @@ Automated tests include regression coverage for:
 - Oversized or malformed queries and cursors
 - Redis identity leakage
 - Outbox metadata leakage
-- Metrics and diagnostics leakage
+- Metrics, diagnostics, and telemetry leakage
+- Raw route, SQL, Redis, token, cookie, or resource-identifier leakage into spans
 - PostgreSQL and Redis failures
 - Concurrent rate-limit enforcement
 
@@ -266,6 +285,7 @@ GitHub Actions runs:
   integration tests
 - Frontend formatting, ESLint, TypeScript, Vitest, and production build
 - The real-stack Playwright smoke test with PostgreSQL and Redis
+- In-memory OpenTelemetry safety and configuration tests without requiring Collector or Jaeger
 - Gitleaks against repository history
 
 CI recreates its databases, applies migrations, starts required dependencies,

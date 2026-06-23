@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 )
 
@@ -13,6 +14,7 @@ func (app *Application) Routes() http.Handler {
 	router := chi.NewRouter()
 
 	router.Use(appmiddleware.BoundedRequestID)
+	router.Use(appmiddleware.TraceRequests(buildinfo.ServiceName))
 	router.Use(appmiddleware.RequestLogger(app.logger))
 	router.Use(app.metricsRegistry.Middleware)
 	router.Use(appmiddleware.RecoverPanic(app.logger))

@@ -8,11 +8,13 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/telemetry"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
@@ -32,6 +34,60 @@ func main() {
 	defer func() {
 		_ = logger.Sync()
 	}()
+
+	telemetryConfig, err := telemetry.LoadConfig()
+	if err != nil {
+		logger.Errorw(
+			"telemetry configuration is invalid",
+			"error", err,
+		)
+
+		return
+	}
+
+	telemetryContext, cancelTelemetry := context.WithTimeout(
+		context.Background(),
+		dependencyStartupTimeout,
+	)
+
+	shutdownTelemetry, err := telemetry.Start(
+		telemetryContext,
+		telemetryConfig,
+		buildinfo.Current(),
+		cfg.Env,
+		logger,
+	)
+
+	cancelTelemetry()
+
+	if err != nil {
+		logger.Errorw(
+			"telemetry initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(
+			context.Background(),
+			dependencyStartupTimeout,
+		)
+		defer cancel()
+
+		if err := shutdownTelemetry(shutdownContext); err != nil {
+			logger.Warnw(
+				"OpenTelemetry shutdown failed",
+			)
+		}
+	}()
+
+	if telemetryConfig.Enabled() {
+		logger.Infow(
+			"OpenTelemetry tracing enabled",
+		)
+	}
 
 	accessTokenManager, err := cfg.Tokens.NewAccessTokenManager()
 	if err != nil {

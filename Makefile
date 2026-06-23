@@ -11,6 +11,8 @@ POSTGRES_DATABASE := vaultforge
 POSTGRES_TEST_DATABASE := vaultforge_test
 POSTGRES_E2E_DATABASE := vaultforge_e2e
 REDIS_SERVICE := redis
+OTEL_COLLECTOR_SERVICE := otel-collector
+JAEGER_SERVICE := jaeger
 
 E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/vaultforge_e2e?sslmode=disable
 E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
@@ -55,6 +57,9 @@ API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
 	compose-down \
 	compose-logs \
 	compose-ps \
+	observability-up \
+	observability-stop \
+	observability-logs \
 	db-setup \
 	db-create-test \
 	db-shell \
@@ -173,6 +178,18 @@ compose-logs:
 
 compose-ps:
 	docker compose -f $(COMPOSE_FILE) ps
+
+observability-up:
+	docker compose -f $(COMPOSE_FILE) up -d \
+		$(JAEGER_SERVICE) $(OTEL_COLLECTOR_SERVICE)
+
+observability-stop:
+	docker compose -f $(COMPOSE_FILE) stop \
+		$(OTEL_COLLECTOR_SERVICE) $(JAEGER_SERVICE)
+
+observability-logs:
+	docker compose -f $(COMPOSE_FILE) logs -f \
+		$(OTEL_COLLECTOR_SERVICE) $(JAEGER_SERVICE)
 
 db-setup:
 	$(MAKE) compose-up

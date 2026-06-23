@@ -142,6 +142,10 @@ Redis must never store:
 - Item payloads or vault values
 - Raw request bodies
 - Raw dependency errors
+- Raw URLs or query strings
+- SQL statements or parameters
+- Redis commands, scripts, keys, or values
+- Raw vault, item, session, user, email, or IP identifiers in trace names or attributes
 - Raw email addresses, IP addresses, or authenticated user IDs as key material
 
 All rate-limit, failed-login, and lockout records have bounded expiration. Redis persistence is disabled in local Compose because these records are temporary operational state, not durable application data.
@@ -227,13 +231,41 @@ Logs, traces, metrics, queues, errors, diagnostics, screenshots, and Redis recor
 - Decrypted content
 - Raw dependency errors
 
-Authentication logs contain only safe operational metadata such as method, path, status, duration, and bounded request ID.
+Authentication logs contain only safe operational metadata such as method, normalized route, status, duration, bounded request ID, and trace ID.
 
 The metrics registry records only normalized HTTP method, Chi route pattern, status class, count, duration, in-flight requests, uptime, and sanitized build metadata. It never records raw URLs, query values, resource IDs, user IDs, email addresses, tokens, cookies, headers, or request bodies.
 
 `/internal/metrics` is available only to the direct loopback peer. Forwarded-IP headers are ignored. Rejected external requests receive the same public not-found response used for unavailable internal routes.
 
 `/health/diagnostics` returns only the service name, sanitized build version, and sanitized commit identifier. Diagnostics and metrics responses use `Cache-Control: no-store`.
+
+## OpenTelemetry boundary
+
+OpenTelemetry tracing is optional and disabled by default.
+
+When enabled, the Go API exports traces through a local OpenTelemetry Collector
+to Jaeger. The tracing boundary records only:
+
+- Service name, sanitized build version, and environment
+- HTTP method
+- Normalized Chi route pattern
+- HTTP status code
+- High-level PostgreSQL operation names
+- Sanitized Redis dependency spans
+- Trace and span identifiers
+
+HTTP spans do not record raw request paths, query strings, request bodies,
+headers, cookies, tokens, or resource identifiers.
+
+PostgreSQL tracing disables SQL-statement and connection-detail attributes.
+Redis tracing disables command statements, keys, values, and caller details.
+
+Collector or Jaeger failure does not bypass application security controls and
+does not cause normal requests to fail. Export errors are logged only as a
+generic warning.
+
+The local Jaeger setup uses temporary development storage and is not a
+production telemetry system.
 
 ## Implemented safeguards
 
@@ -269,6 +301,9 @@ The current backend includes:
 - Fail-closed password-hasher behavior
 - Sanitized build diagnostics
 - Loopback-only low-cardinality metrics
+- Optional OpenTelemetry traces for normalized HTTP, PostgreSQL, and Redis operations
+- Trace IDs correlated with safe structured request logs
+- Regression tests preventing secrets, SQL, Redis keys, and resource identifiers from entering spans
 - Safe structured request logging
 - Panic recovery with generic public errors
 - PostgreSQL and Redis integration tests
@@ -291,9 +326,12 @@ The current backend includes:
 - A compromised browser could access decrypted data while a future vault is unlocked.
 - Some non-secret metadata may remain visible to backend services.
 - The temporary Go Argon2id adapter will later be replaced by a Rust gRPC service.
-- RabbitMQ publication, OpenTelemetry tracing, production deployment, and browser-side encryption remain future roadmap work.
+- The local OpenTelemetry Collector and Jaeger setup is development-only, uses temporary trace storage, and does not provide production alerting or retention.
+- RabbitMQ publication remains optional future work. Production deployment and browser-side encryption remain future roadmap work.
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat model, accepted risks, and trust boundaries.
+
+See [`docs/runbook.md`](docs/runbook.md) for safe operational and telemetry procedures.
 
 ## Reporting a vulnerability
 

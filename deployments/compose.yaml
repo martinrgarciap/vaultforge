@@ -28,5 +28,21 @@ services:
       retries: 5
       start_period: 5s
 
+  jaeger:
+    image: jaegertracing/jaeger:2.19.0
+    ports:
+      - "127.0.0.1:16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.153.0
+    command:
+      - "--config=/etc/otelcol/config.yaml"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - jaeger
+
 volumes:
   vaultforge_postgres_data:
