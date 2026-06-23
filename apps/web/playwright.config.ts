@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
 const apiOrigin = "http://127.0.0.1:8081";
@@ -11,6 +12,8 @@ const redisURL =
   process.env.E2E_REDIS_URL?.trim() || "redis://127.0.0.1:6380/2";
 
 const testSigningSeed = Buffer.alloc(32, 0x42).toString("base64");
+
+const testRateLimitIdentityKey = randomBytes(32).toString("base64");
 
 export default defineConfig({
   testDir: "./e2e",
@@ -66,6 +69,7 @@ export default defineConfig({
         REDIS_READ_TIMEOUT: "1s",
         REDIS_WRITE_TIMEOUT: "1s",
         REDIS_POOL_TIMEOUT: "2s",
+        RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64: testRateLimitIdentityKey,
         ACCESS_TOKEN_ISSUER: "vaultforge-e2e",
         ACCESS_TOKEN_AUDIENCE: "vaultforge-e2e",
         ACCESS_TOKEN_KEY_ID: "playwright-ed25519-v1",

@@ -54,6 +54,7 @@ func newTestApplicationWithDatabaseError(
 		&testDatabasePinger{
 			err: databaseError,
 		},
+		newAllowingTestRequestLimiter(),
 		&routeTestAuthService{},
 		newTestSessionService(),
 		nil,

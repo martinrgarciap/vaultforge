@@ -39,6 +39,7 @@ type SessionService interface {
 type Handler struct {
 	registrationService RegistrationService
 	sessionService      SessionService
+	loginProtector      LoginProtector
 	sessionCookies      *sessioncookie.Manager
 	logger              *zap.SugaredLogger
 }
@@ -70,12 +71,14 @@ type refreshResponse struct {
 func New(
 	registrationService RegistrationService,
 	sessionService SessionService,
+	loginProtector LoginProtector,
 	sessionCookies *sessioncookie.Manager,
 	logger *zap.SugaredLogger,
 ) *Handler {
 	return &Handler{
 		registrationService: registrationService,
 		sessionService:      sessionService,
+		loginProtector:      loginProtector,
 		sessionCookies:      sessionCookies,
 		logger:              logger,
 	}
@@ -143,7 +146,10 @@ func (handler *Handler) Login(
 ) {
 	setNoStore(w)
 
-	if handler == nil || handler.sessionService == nil || handler.sessionCookies == nil {
+	if handler == nil ||
+		handler.sessionService == nil ||
+		handler.loginProtector == nil ||
+		handler.sessionCookies == nil {
 		handler.writeError(
 			w,
 			r,
@@ -157,15 +163,67 @@ func (handler *Handler) Login(
 
 	var requestBody credentialsRequest
 
-	err := request.DecodeJSON(w, r, &requestBody, maxAuthRequestBodyBytes)
+	err := request.DecodeJSON(
+		w,
+		r,
+		&requestBody,
+		maxAuthRequestBodyBytes,
+	)
 	if err != nil {
 		handler.writeDecodeError(w, r, err)
+
 		return
 	}
 
-	csrfToken, err := handler.sessionCookies.GenerateCSRFToken(r.Context())
+	protectionIdentity, ok := loginProtectionIdentity(
+		r,
+		requestBody.Email,
+	)
+	if !ok {
+		handler.writeError(
+			w,
+			r,
+			http.StatusServiceUnavailable,
+			"authentication_unavailable",
+			"Authentication is temporarily unavailable.",
+		)
+
+		return
+	}
+
+	lockout, err := handler.loginProtector.Check(
+		r.Context(),
+		protectionIdentity...,
+	)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusServiceUnavailable,
+			"authentication_unavailable",
+			"Authentication is temporarily unavailable.",
+		)
+
+		return
+	}
+
+	if lockout.Locked {
+		handler.writeLoginLockout(
+			w,
+			r,
+			lockout.RetryAfter,
+		)
+
+		return
+	}
+
+	csrfToken, err :=
+		handler.sessionCookies.GenerateCSRFToken(
+			r.Context(),
+		)
 	if err != nil {
 		handler.writeCookieTransportError(w, r)
+
 		return
 	}
 
@@ -178,8 +236,49 @@ func (handler *Handler) Login(
 		},
 	)
 	if err != nil {
+		if errors.Is(
+			err,
+			auth.ErrInvalidCredentials,
+		) {
+			lockout, protectionErr :=
+				handler.loginProtector.RecordFailure(
+					r.Context(),
+					protectionIdentity...,
+				)
+
+			if protectionErr != nil {
+				handler.writeError(
+					w,
+					r,
+					http.StatusServiceUnavailable,
+					"authentication_unavailable",
+					"Authentication is temporarily unavailable.",
+				)
+
+				return
+			}
+
+			if lockout.Locked {
+				handler.writeLoginLockout(
+					w,
+					r,
+					lockout.RetryAfter,
+				)
+
+				return
+			}
+		}
+
 		handler.writeLoginError(w, r, err)
+
 		return
+	}
+
+	if err := handler.loginProtector.Clear(
+		r.Context(),
+		protectionIdentity...,
+	); err != nil {
+		handler.logLoginProtectionClearFailure(r)
 	}
 
 	if err := handler.sessionCookies.Set(
@@ -189,6 +288,7 @@ func (handler *Handler) Login(
 		result.RefreshTokenExpiresAt,
 	); err != nil {
 		handler.writeCookieTransportError(w, r)
+
 		return
 	}
 

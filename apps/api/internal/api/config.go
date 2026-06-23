@@ -23,6 +23,7 @@ type Config struct {
 	Addr           string
 	DatabaseURL    string
 	Redis          redisclient.Config
+	RateLimits     RateLimitConfig
 	Tokens         session.TokenConfig
 	SessionCookies sessioncookie.Config
 }
@@ -55,12 +56,18 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	rateLimitConfig, err := loadRateLimitConfig(cfg.Env)
+	if err != nil {
+		return Config{}, err
+	}
+
 	tokenConfig, err := loadTokenConfig()
 	if err != nil {
 		return Config{}, err
 	}
 
 	cfg.Redis = redisConfig
+	cfg.RateLimits = rateLimitConfig
 	cfg.Tokens = tokenConfig
 	cfg.SessionCookies = sessioncookie.NewConfig(
 		cfg.Env == "production",

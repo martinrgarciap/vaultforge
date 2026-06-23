@@ -9,6 +9,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
@@ -100,6 +101,29 @@ func main() {
 		"Redis connection established",
 	)
 
+	rateLimitKeyBuilder, err :=
+		cfg.RateLimits.NewKeyBuilder()
+	if err != nil {
+		logger.Errorw(
+			"rate-limit key initialization failed",
+		)
+
+		return
+	}
+
+	securityEnforcer, err := ratelimit.NewEnforcer(
+		redisClient,
+		rateLimitKeyBuilder,
+		cfg.RateLimits.LoginProtection,
+	)
+	if err != nil {
+		logger.Errorw(
+			"rate-limit initialization failed",
+		)
+
+		return
+	}
+
 	userStore := store.NewUserStore(
 		databasePool,
 	)
@@ -135,6 +159,7 @@ func main() {
 		cfg,
 		logger,
 		readinessPinger,
+		securityEnforcer,
 		authService,
 		sessionService,
 		vaultService,

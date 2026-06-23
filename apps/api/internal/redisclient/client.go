@@ -42,6 +42,26 @@ func (client *Client) Ping(ctx context.Context) error {
 	return client.client.Ping(ctx).Err()
 }
 
+func (client *Client) RunScript(
+	ctx context.Context,
+	source string,
+	keys []string,
+	args ...any,
+) (any, error) {
+	if client == nil || client.client == nil {
+		return nil, errors.New("redis unavailable")
+	}
+
+	script := redis.NewScript(source)
+
+	return script.Run(
+		ctx,
+		client.client,
+		keys,
+		args...,
+	).Result()
+}
+
 func (client *Client) Close() error {
 	if client == nil || client.client == nil {
 		return nil

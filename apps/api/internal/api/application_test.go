@@ -17,6 +17,7 @@ func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 		},
 		zap.NewNop().Sugar(),
 		&testDatabasePinger{},
+		newAllowingTestRequestLimiter(),
 		&routeTestAuthService{},
 		sessionService,
 		nil,

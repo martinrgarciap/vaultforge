@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 	"go.uber.org/zap"
@@ -165,7 +166,19 @@ func TestRoutesVaultActionsAuthenticated(t *testing.T) {
 	}
 }
 
-func newApplicationWithVaultService(vaultService *routeTestVaultService) *Application {
+func newApplicationWithVaultService(
+	vaultService *routeTestVaultService,
+) *Application {
+	return newApplicationWithVaultServiceAndSecurityEnforcer(
+		vaultService,
+		newAllowingTestRequestLimiter(),
+	)
+}
+
+func newApplicationWithVaultServiceAndSecurityEnforcer(
+	vaultService *routeTestVaultService,
+	securityEnforcer SecurityEnforcer,
+) *Application {
 	authService := &routeTestAuthService{}
 
 	return NewApplication(
@@ -176,6 +189,7 @@ func newApplicationWithVaultService(vaultService *routeTestVaultService) *Applic
 		},
 		zap.NewNop().Sugar(),
 		&testDatabasePinger{},
+		securityEnforcer,
 		authService,
 		newTestLoginSessionService(authService),
 		vaultService,
@@ -291,5 +305,219 @@ func (service *routeTestVaultService) callCount(operation string) int {
 		return service.deleteCalls
 	default:
 		return 0
+	}
+}
+
+func TestRoutesVaultMutationsAreRateLimited(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/v1/vaults",
+			body:   `{"name":"Development"}`,
+		},
+		{
+			name:   "rename",
+			method: http.MethodPatch,
+			path: "/v1/vaults/" +
+				routeVaultTestID,
+			body: `{"name":"Renamed Vault"}`,
+		},
+		{
+			name:   "delete",
+			method: http.MethodDelete,
+			path: "/v1/vaults/" +
+				routeVaultTestID,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			securityEnforcer := &testRequestLimiter{
+				decision: ratelimit.Decision{
+					Allowed:    false,
+					RetryAfter: 40 * time.Second,
+				},
+			}
+
+			service := &routeTestVaultService{}
+
+			app :=
+				newApplicationWithVaultServiceAndSecurityEnforcer(
+					service,
+					securityEnforcer,
+				)
+
+			request := newAuthenticatedVaultRouteRequest(
+				t,
+				testCase.method,
+				testCase.path,
+				testCase.body,
+			)
+
+			recorder := httptest.NewRecorder()
+			app.Routes().ServeHTTP(
+				recorder,
+				request,
+			)
+
+			assertRouteRateLimitError(
+				t,
+				recorder,
+				http.StatusTooManyRequests,
+				"rate_limit_exceeded",
+			)
+
+			if recorder.Header().Get(
+				"Retry-After",
+			) != "40" {
+				t.Fatalf(
+					"Retry-After = %q, want 40",
+					recorder.Header().Get(
+						"Retry-After",
+					),
+				)
+			}
+
+			if service.createCalls != 0 ||
+				service.renameCalls != 0 ||
+				service.deleteCalls != 0 {
+				t.Fatal(
+					"denied vault mutation reached the service",
+				)
+			}
+
+			if securityEnforcer.calls != 1 {
+				t.Fatalf(
+					"limiter calls = %d, want 1",
+					securityEnforcer.calls,
+				)
+			}
+
+			if securityEnforcer.lastScope !=
+				ratelimit.ScopeMutation {
+				t.Fatalf(
+					"scope = %q, want %q",
+					securityEnforcer.lastScope,
+					ratelimit.ScopeMutation,
+				)
+			}
+
+			if len(
+				securityEnforcer.lastIdentity,
+			) != 1 ||
+				securityEnforcer.lastIdentity[0] !=
+					routeSessionTestUserID {
+				t.Fatalf(
+					"identity = %#v",
+					securityEnforcer.lastIdentity,
+				)
+			}
+		})
+	}
+}
+
+func TestRoutesVaultMutationFailsClosedWhenRateLimitUnavailable(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	securityEnforcer := &testRequestLimiter{
+		err: ratelimit.ErrUnavailable,
+	}
+
+	service := &routeTestVaultService{}
+
+	app :=
+		newApplicationWithVaultServiceAndSecurityEnforcer(
+			service,
+			securityEnforcer,
+		)
+
+	request := newAuthenticatedVaultRouteRequest(
+		t,
+		http.MethodPost,
+		"/v1/vaults",
+		`{"name":"Development"}`,
+	)
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, request)
+
+	assertRouteRateLimitError(
+		t,
+		recorder,
+		http.StatusServiceUnavailable,
+		"service_unavailable",
+	)
+
+	if service.createCalls != 0 {
+		t.Fatal(
+			"unavailable enforcement reached the vault service",
+		)
+	}
+}
+
+func TestRoutesReadOnlyVaultRequestIgnoresRateLimitFailure(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	securityEnforcer := &testRequestLimiter{
+		err: ratelimit.ErrUnavailable,
+	}
+
+	service := &routeTestVaultService{}
+
+	app :=
+		newApplicationWithVaultServiceAndSecurityEnforcer(
+			service,
+			securityEnforcer,
+		)
+
+	request := newAuthenticatedVaultRouteRequest(
+		t,
+		http.MethodGet,
+		"/v1/vaults",
+		"",
+	)
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"status = %d, want %d; body = %s",
+			recorder.Code,
+			http.StatusOK,
+			recorder.Body.String(),
+		)
+	}
+
+	if service.listCalls != 1 {
+		t.Fatalf(
+			"List() calls = %d, want 1",
+			service.listCalls,
+		)
+	}
+
+	if securityEnforcer.calls != 0 {
+		t.Fatalf(
+			"read-only route called limiter %d times",
+			securityEnforcer.calls,
+		)
 	}
 }

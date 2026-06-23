@@ -4,6 +4,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/authhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/itemhandler"
+	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessionhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/vaulthandler"
@@ -12,21 +13,28 @@ import (
 	"go.uber.org/zap"
 )
 
+type SecurityEnforcer interface {
+	appmiddleware.RequestLimiter
+	authhandler.LoginProtector
+}
+
 type Application struct {
-	config         Config
-	logger         *zap.SugaredLogger
-	healthHandler  *health.Handler
-	authHandler    *authhandler.Handler
-	sessionService *session.Service
-	sessionHandler *sessionhandler.Handler
-	vaultHandler   *vaulthandler.Handler
-	itemHandler    *itemhandler.Handler
+	config           Config
+	logger           *zap.SugaredLogger
+	healthHandler    *health.Handler
+	securityEnforcer SecurityEnforcer
+	authHandler      *authhandler.Handler
+	sessionService   *session.Service
+	sessionHandler   *sessionhandler.Handler
+	vaultHandler     *vaulthandler.Handler
+	itemHandler      *itemhandler.Handler
 }
 
 func NewApplication(
 	cfg Config,
 	logger *zap.SugaredLogger,
 	readinessPinger health.Pinger,
+	securityEnforcer SecurityEnforcer,
 	authService authhandler.RegistrationService,
 	sessionService *session.Service,
 	vaultService vaulthandler.VaultService,
@@ -35,8 +43,9 @@ func NewApplication(
 	sessionCookies := sessioncookie.NewManager(cfg.SessionCookies)
 
 	return &Application{
-		config: cfg,
-		logger: logger,
+		config:           cfg,
+		logger:           logger,
+		securityEnforcer: securityEnforcer,
 		healthHandler: health.NewHealthCheckHandler(
 			cfg.Env,
 			readinessPinger,
@@ -44,6 +53,7 @@ func NewApplication(
 		authHandler: authhandler.New(
 			authService,
 			sessionService,
+			securityEnforcer,
 			sessionCookies,
 			logger,
 		),

@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 )
@@ -662,10 +663,23 @@ func TestHandlerRefreshRejectsNonEmptyBody(t *testing.T) {
 func newTestRouter(
 	service *fakeAuthService,
 ) http.Handler {
+	return newTestRouterWithLoginProtector(
+		service,
+		&fakeLoginProtector{},
+	)
+}
+
+func newTestRouterWithLoginProtector(
+	service *fakeAuthService,
+	loginProtector *fakeLoginProtector,
+) http.Handler {
 	handler := New(
 		service,
 		service,
-		sessioncookie.NewManager(sessioncookie.NewConfig(false)),
+		loginProtector,
+		sessioncookie.NewManager(
+			sessioncookie.NewConfig(false),
+		),
 		zap.NewNop().Sugar(),
 	)
 
@@ -886,4 +900,267 @@ func (service *fakeAuthService) Refresh(
 	}
 
 	return service.refreshResult, nil
+}
+
+type fakeLoginProtector struct {
+	checkDecision  ratelimit.LockoutDecision
+	recordDecision ratelimit.LockoutDecision
+	checkErr       error
+	recordErr      error
+	clearErr       error
+
+	checkCalls         int
+	recordFailureCalls int
+	clearCalls         int
+
+	lastIdentity []string
+}
+
+func (protector *fakeLoginProtector) Check(
+	_ context.Context,
+	identityParts ...string,
+) (ratelimit.LockoutDecision, error) {
+	protector.checkCalls++
+	protector.lastIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return protector.checkDecision,
+		protector.checkErr
+}
+
+func (protector *fakeLoginProtector) RecordFailure(
+	_ context.Context,
+	identityParts ...string,
+) (ratelimit.LockoutDecision, error) {
+	protector.recordFailureCalls++
+	protector.lastIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return protector.recordDecision,
+		protector.recordErr
+}
+
+func (protector *fakeLoginProtector) Clear(
+	_ context.Context,
+	identityParts ...string,
+) error {
+	protector.clearCalls++
+	protector.lastIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return protector.clearErr
+}
+
+func TestHandlerLoginRejectsActiveLockout(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		loginResult: newHandlerTestLoginResult(t),
+	}
+
+	protector := &fakeLoginProtector{
+		checkDecision: ratelimit.LockoutDecision{
+			Locked:     true,
+			RetryAfter: 90 * time.Second,
+		},
+	}
+
+	router := newTestRouterWithLoginProtector(
+		service,
+		protector,
+	)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/login",
+		`{
+			"email": "martin@example.com",
+			"password": "correct horse battery staple"
+		}`,
+	)
+	request.RemoteAddr = "203.0.113.10:54321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusTooManyRequests,
+		"login_locked",
+	)
+
+	if recorder.Header().Get("Retry-After") != "90" {
+		t.Fatalf(
+			"Retry-After = %q, want 90",
+			recorder.Header().Get("Retry-After"),
+		)
+	}
+
+	if service.loginCalls != 0 {
+		t.Fatal("locked request reached the session service")
+	}
+}
+
+func TestHandlerLoginRecordsThresholdFailure(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		loginErr: auth.ErrInvalidCredentials,
+	}
+
+	protector := &fakeLoginProtector{
+		recordDecision: ratelimit.LockoutDecision{
+			Locked:     true,
+			Failures:   5,
+			RetryAfter: 15 * time.Minute,
+		},
+	}
+
+	router := newTestRouterWithLoginProtector(
+		service,
+		protector,
+	)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/login",
+		`{
+			"email": "  Martin@Example.COM  ",
+			"password": "incorrect password value"
+		}`,
+	)
+	request.RemoteAddr = "203.0.113.10:54321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusTooManyRequests,
+		"login_locked",
+	)
+
+	if protector.recordFailureCalls != 1 {
+		t.Fatalf(
+			"RecordFailure() calls = %d, want 1",
+			protector.recordFailureCalls,
+		)
+	}
+
+	expectedIdentity := []string{
+		"martin@example.com",
+		"203.0.113.10",
+	}
+
+	if len(protector.lastIdentity) != 2 ||
+		protector.lastIdentity[0] != expectedIdentity[0] ||
+		protector.lastIdentity[1] != expectedIdentity[1] {
+		t.Fatalf(
+			"identity = %#v, want %#v",
+			protector.lastIdentity,
+			expectedIdentity,
+		)
+	}
+}
+
+func TestHandlerLoginClearsProtectionAfterSuccess(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		loginResult: newHandlerTestLoginResult(t),
+	}
+	protector := &fakeLoginProtector{}
+
+	router := newTestRouterWithLoginProtector(
+		service,
+		protector,
+	)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/login",
+		`{
+			"email": "martin@example.com",
+			"password": "correct horse battery staple"
+		}`,
+	)
+	request.RemoteAddr = "203.0.113.10:54321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf(
+			"status = %d, want %d; body = %s",
+			recorder.Code,
+			http.StatusOK,
+			recorder.Body.String(),
+		)
+	}
+
+	if protector.clearCalls != 1 {
+		t.Fatalf(
+			"Clear() calls = %d, want 1",
+			protector.clearCalls,
+		)
+	}
+}
+
+func TestHandlerLoginFailsClosedWhenProtectionUnavailable(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	service := &fakeAuthService{
+		loginResult: newHandlerTestLoginResult(t),
+	}
+
+	protector := &fakeLoginProtector{
+		checkErr: ratelimit.ErrUnavailable,
+	}
+
+	router := newTestRouterWithLoginProtector(
+		service,
+		protector,
+	)
+
+	request := newJSONRequest(
+		http.MethodPost,
+		"/v1/auth/login",
+		`{
+			"email": "martin@example.com",
+			"password": "correct horse battery staple"
+		}`,
+	)
+	request.RemoteAddr = "203.0.113.10:54321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assertErrorResponse(
+		t,
+		recorder,
+		http.StatusServiceUnavailable,
+		"authentication_unavailable",
+	)
+
+	if service.loginCalls != 0 {
+		t.Fatal(
+			"unavailable login protection reached the session service",
+		)
+	}
 }

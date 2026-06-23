@@ -12,6 +12,7 @@ import (
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -472,6 +473,18 @@ func newApplicationWithAuthService(
 	authService *routeTestAuthService,
 	logger *zap.SugaredLogger,
 ) *Application {
+	return newApplicationWithAuthServiceAndSecurityEnforcer(
+		authService,
+		logger,
+		newAllowingTestRequestLimiter(),
+	)
+}
+
+func newApplicationWithAuthServiceAndSecurityEnforcer(
+	authService *routeTestAuthService,
+	logger *zap.SugaredLogger,
+	securityEnforcer SecurityEnforcer,
+) *Application {
 	cfg := Config{
 		Env:         "test",
 		Addr:        ":8080",
@@ -482,10 +495,9 @@ func newApplicationWithAuthService(
 		cfg,
 		logger,
 		&testDatabasePinger{},
+		securityEnforcer,
 		authService,
-		newTestLoginSessionService(
-			authService,
-		),
+		newTestLoginSessionService(authService),
 		nil,
 		nil,
 	)
@@ -548,4 +560,170 @@ func (service *routeTestAuthService) Login(
 	}
 
 	return service.loginAccount, nil
+}
+
+func TestRoutesAuthRequestLimitsByPeerIP(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		path      string
+		wantScope string
+	}{
+		{
+			name:      "registration",
+			path:      "/v1/auth/register",
+			wantScope: ratelimit.ScopeRegistration,
+		},
+		{
+			name:      "login",
+			path:      "/v1/auth/login",
+			wantScope: ratelimit.ScopeLogin,
+		},
+		{
+			name:      "refresh",
+			path:      "/v1/auth/refresh",
+			wantScope: ratelimit.ScopeRefresh,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			securityEnforcer := &testRequestLimiter{
+				decision: ratelimit.Decision{
+					Allowed:    false,
+					RetryAfter: 75 * time.Second,
+				},
+			}
+
+			authService := &routeTestAuthService{}
+
+			app :=
+				newApplicationWithAuthServiceAndSecurityEnforcer(
+					authService,
+					zap.NewNop().Sugar(),
+					securityEnforcer,
+				)
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				testCase.path,
+				nil,
+			)
+			request.RemoteAddr =
+				"203.0.113.10:54321"
+
+			recorder := httptest.NewRecorder()
+			app.Routes().ServeHTTP(
+				recorder,
+				request,
+			)
+
+			assertRouteRateLimitError(
+				t,
+				recorder,
+				http.StatusTooManyRequests,
+				"rate_limit_exceeded",
+			)
+
+			if recorder.Header().Get(
+				"Retry-After",
+			) != "75" {
+				t.Fatalf(
+					"Retry-After = %q, want 75",
+					recorder.Header().Get(
+						"Retry-After",
+					),
+				)
+			}
+
+			if securityEnforcer.calls != 1 {
+				t.Fatalf(
+					"limiter calls = %d, want 1",
+					securityEnforcer.calls,
+				)
+			}
+
+			if securityEnforcer.lastScope !=
+				testCase.wantScope {
+				t.Fatalf(
+					"scope = %q, want %q",
+					securityEnforcer.lastScope,
+					testCase.wantScope,
+				)
+			}
+
+			if len(
+				securityEnforcer.lastIdentity,
+			) != 1 ||
+				securityEnforcer.lastIdentity[0] !=
+					"203.0.113.10" {
+				t.Fatalf(
+					"identity = %#v",
+					securityEnforcer.lastIdentity,
+				)
+			}
+
+			if authService.registerCalls != 0 ||
+				authService.loginCalls != 0 {
+				t.Fatal(
+					"denied authentication request reached a service",
+				)
+			}
+		})
+	}
+}
+
+func TestRoutesAuthFailsClosedWhenRateLimitUnavailable(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	securityEnforcer := &testRequestLimiter{
+		err: ratelimit.ErrUnavailable,
+	}
+
+	authService := &routeTestAuthService{}
+
+	app :=
+		newApplicationWithAuthServiceAndSecurityEnforcer(
+			authService,
+			zap.NewNop().Sugar(),
+			securityEnforcer,
+		)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/auth/login",
+		nil,
+	)
+	request.RemoteAddr = "203.0.113.10:54321"
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, request)
+
+	assertRouteRateLimitError(
+		t,
+		recorder,
+		http.StatusServiceUnavailable,
+		"authentication_unavailable",
+	)
+
+	if recorder.Header().Get("Retry-After") != "" {
+		t.Fatal(
+			"dependency failure unexpectedly included Retry-After",
+		)
+	}
+
+	if authService.loginCalls != 0 {
+		t.Fatal(
+			"unavailable rate-limit service reached authentication",
+		)
+	}
 }

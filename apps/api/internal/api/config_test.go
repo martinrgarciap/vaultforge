@@ -578,6 +578,28 @@ func TestLoadConfigRejectsInvalidTokenIdentity(
 func setValidConfigEnvironment(t *testing.T) {
 	t.Helper()
 
+	t.Setenv(
+		"RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			bytes.Repeat(
+				[]byte{0x24},
+				32,
+			),
+		),
+	)
+
+	t.Setenv("RATE_LIMIT_REGISTRATION_REQUESTS", "")
+	t.Setenv("RATE_LIMIT_REGISTRATION_WINDOW", "")
+	t.Setenv("RATE_LIMIT_LOGIN_REQUESTS", "")
+	t.Setenv("RATE_LIMIT_LOGIN_WINDOW", "")
+	t.Setenv("RATE_LIMIT_REFRESH_REQUESTS", "")
+	t.Setenv("RATE_LIMIT_REFRESH_WINDOW", "")
+	t.Setenv("RATE_LIMIT_MUTATION_REQUESTS", "")
+	t.Setenv("RATE_LIMIT_MUTATION_WINDOW", "")
+	t.Setenv("LOGIN_FAILURE_LIMIT", "")
+	t.Setenv("LOGIN_FAILURE_WINDOW", "")
+	t.Setenv("LOGIN_LOCKOUT_DURATION", "")
+
 	t.Setenv("REDIS_URL", testRedisURL)
 	t.Setenv("REDIS_DIAL_TIMEOUT", "")
 	t.Setenv("REDIS_READ_TIMEOUT", "")

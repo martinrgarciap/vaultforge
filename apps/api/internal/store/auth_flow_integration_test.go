@@ -21,6 +21,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
@@ -1010,6 +1011,7 @@ func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
 		},
 		logger,
 		databasePool,
+		allowingStoreRequestLimiter{},
 		authService,
 		sessionService,
 		vaultService,
@@ -1230,4 +1232,38 @@ func assertAuthenticationLogsSafe(
 			)
 		}
 	}
+}
+
+type allowingStoreRequestLimiter struct{}
+
+func (allowingStoreRequestLimiter) Allow(
+	_ context.Context,
+	_ string,
+	_ ratelimit.Policy,
+	_ ...string,
+) (ratelimit.Decision, error) {
+	return ratelimit.Decision{
+		Allowed: true,
+	}, nil
+}
+
+func (allowingStoreRequestLimiter) Check(
+	_ context.Context,
+	_ ...string,
+) (ratelimit.LockoutDecision, error) {
+	return ratelimit.LockoutDecision{}, nil
+}
+
+func (allowingStoreRequestLimiter) RecordFailure(
+	_ context.Context,
+	_ ...string,
+) (ratelimit.LockoutDecision, error) {
+	return ratelimit.LockoutDecision{}, nil
+}
+
+func (allowingStoreRequestLimiter) Clear(
+	_ context.Context,
+	_ ...string,
+) error {
+	return nil
 }

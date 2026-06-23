@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 )
@@ -131,4 +132,85 @@ func (sessionStore *testLoginSessionStore) GetActiveState(
 			session.DefaultRefreshTokenTTL,
 		),
 	}, nil
+}
+
+type testRequestLimiter struct {
+	decision     ratelimit.Decision
+	err          error
+	calls        int
+	lastScope    string
+	lastIdentity []string
+
+	checkDecision      ratelimit.LockoutDecision
+	recordDecision     ratelimit.LockoutDecision
+	loginProtectionErr error
+	checkCalls         int
+	recordFailureCalls int
+	clearCalls         int
+	lastLoginIdentity  []string
+}
+
+func newAllowingTestRequestLimiter() *testRequestLimiter {
+	return &testRequestLimiter{
+		decision: ratelimit.Decision{
+			Allowed: true,
+		},
+	}
+}
+
+func (limiter *testRequestLimiter) Allow(
+	_ context.Context,
+	scope string,
+	_ ratelimit.Policy,
+	identityParts ...string,
+) (ratelimit.Decision, error) {
+	limiter.calls++
+	limiter.lastScope = scope
+	limiter.lastIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return limiter.decision, limiter.err
+}
+
+func (limiter *testRequestLimiter) Check(
+	_ context.Context,
+	identityParts ...string,
+) (ratelimit.LockoutDecision, error) {
+	limiter.checkCalls++
+	limiter.lastLoginIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return limiter.checkDecision,
+		limiter.loginProtectionErr
+}
+
+func (limiter *testRequestLimiter) RecordFailure(
+	_ context.Context,
+	identityParts ...string,
+) (ratelimit.LockoutDecision, error) {
+	limiter.recordFailureCalls++
+	limiter.lastLoginIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return limiter.recordDecision,
+		limiter.loginProtectionErr
+}
+
+func (limiter *testRequestLimiter) Clear(
+	_ context.Context,
+	identityParts ...string,
+) error {
+	limiter.clearCalls++
+	limiter.lastLoginIdentity = append(
+		[]string(nil),
+		identityParts...,
+	)
+
+	return limiter.loginProtectionErr
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 	"go.uber.org/zap"
@@ -388,6 +389,16 @@ func TestRoutesItemsRejectDoubledVaultPath(t *testing.T) {
 func newApplicationWithItemService(
 	itemService *routeTestItemService,
 ) *Application {
+	return newApplicationWithItemServiceAndSecurityEnforcer(
+		itemService,
+		newAllowingTestRequestLimiter(),
+	)
+}
+
+func newApplicationWithItemServiceAndSecurityEnforcer(
+	itemService *routeTestItemService,
+	securityEnforcer SecurityEnforcer,
+) *Application {
 	authService := &routeTestAuthService{}
 
 	return NewApplication(
@@ -398,6 +409,7 @@ func newApplicationWithItemService(
 		},
 		zap.NewNop().Sugar(),
 		&testDatabasePinger{},
+		securityEnforcer,
 		authService,
 		newTestLoginSessionService(authService),
 		nil,
@@ -680,5 +692,146 @@ func (service *routeTestItemService) lastItemID(
 		return service.lastPermanentDeleteInput.ItemID
 	default:
 		return ""
+	}
+}
+
+func TestRoutesItemMutationsAreRateLimited(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	basePath := "/v1/vaults/" +
+		routeItemTestVaultID +
+		"/items"
+
+	itemPath := basePath + "/" +
+		routeItemTestID
+
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   basePath,
+			body: `{
+				"type": "secure_note",
+				"payload": {}
+			}`,
+		},
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   itemPath,
+			body: `{
+				"type": "secure_note",
+				"payload": {}
+			}`,
+		},
+		{
+			name:   "soft delete",
+			method: http.MethodDelete,
+			path:   itemPath,
+		},
+		{
+			name:   "restore",
+			method: http.MethodPost,
+			path:   itemPath + "/restore",
+		},
+		{
+			name:   "permanent delete",
+			method: http.MethodDelete,
+			path:   itemPath + "/permanent",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			securityEnforcer := &testRequestLimiter{
+				decision: ratelimit.Decision{
+					Allowed:    false,
+					RetryAfter: 25 * time.Second,
+				},
+			}
+
+			service := &routeTestItemService{}
+
+			app :=
+				newApplicationWithItemServiceAndSecurityEnforcer(
+					service,
+					securityEnforcer,
+				)
+
+			request := newAuthenticatedItemRouteRequest(
+				t,
+				testCase.method,
+				testCase.path,
+				testCase.body,
+			)
+
+			recorder := httptest.NewRecorder()
+			app.Routes().ServeHTTP(
+				recorder,
+				request,
+			)
+
+			assertRouteRateLimitError(
+				t,
+				recorder,
+				http.StatusTooManyRequests,
+				"rate_limit_exceeded",
+			)
+
+			if recorder.Header().Get(
+				"Retry-After",
+			) != "25" {
+				t.Fatalf(
+					"Retry-After = %q, want 25",
+					recorder.Header().Get(
+						"Retry-After",
+					),
+				)
+			}
+
+			if service.totalCalls() != 0 {
+				t.Fatal(
+					"denied item mutation reached the service",
+				)
+			}
+
+			if securityEnforcer.calls != 1 {
+				t.Fatalf(
+					"limiter calls = %d, want 1",
+					securityEnforcer.calls,
+				)
+			}
+
+			if securityEnforcer.lastScope !=
+				ratelimit.ScopeMutation {
+				t.Fatalf(
+					"scope = %q, want %q",
+					securityEnforcer.lastScope,
+					ratelimit.ScopeMutation,
+				)
+			}
+
+			if len(
+				securityEnforcer.lastIdentity,
+			) != 1 ||
+				securityEnforcer.lastIdentity[0] !=
+					routeSessionTestUserID {
+				t.Fatalf(
+					"identity = %#v",
+					securityEnforcer.lastIdentity,
+				)
+			}
+		})
 	}
 }
