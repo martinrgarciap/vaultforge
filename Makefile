@@ -14,6 +14,11 @@ REDIS_SERVICE := redis
 
 E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/vaultforge_e2e?sslmode=disable
 E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
+API_BUILD_PACKAGE := github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo
+API_BUILD_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo development)
+API_BUILD_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
+	-X $(API_BUILD_PACKAGE).Commit=$(API_BUILD_COMMIT)
 
 .PHONY: \
 	setup \
@@ -39,6 +44,7 @@ E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
 	format-check-api \
 	format-check-web \
 	typecheck-web \
+	build-api \
 	build-web \
 	mod-verify \
 	verify \
@@ -72,7 +78,10 @@ setup-e2e:
 dev: dev-api
 
 dev-api:
-	cd $(API_DIR) && go run ./cmd/api
+	cd $(API_DIR) && \
+		go run \
+			-ldflags "$(API_BUILD_LDFLAGS)" \
+			./cmd/api
 
 dev-web:
 	cd $(WEB_DIR) && npm run dev
@@ -123,6 +132,16 @@ format-check-web:
 typecheck-web:
 	cd $(WEB_DIR) && npm run typecheck
 
+build-api:
+	cd $(API_DIR) && \
+		output="$$(mktemp)" && \
+		trap 'rm -f "$$output"' EXIT && \
+		go build \
+			-trimpath \
+			-ldflags "$(API_BUILD_LDFLAGS)" \
+			-o "$$output" \
+			./cmd/api
+
 build-web:
 	cd $(WEB_DIR) && npm run build
 
@@ -131,7 +150,7 @@ mod-verify:
 
 verify: verify-api verify-web verify-e2e
 
-verify-api: format-check-api mod-verify lint-api test-api
+verify-api: format-check-api mod-verify lint-api test-api build-api
 
 verify-web: format-check-web lint-web typecheck-web test-web build-web
 

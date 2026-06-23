@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type fakeDatabasePinger struct {
@@ -199,6 +200,44 @@ func TestReadyReturnsServiceUnavailableWithoutDatabase(
 			http.StatusServiceUnavailable,
 			recorder.Code,
 		)
+	}
+}
+
+type deadlineCapturingPinger struct {
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (pinger *deadlineCapturingPinger) Ping(ctx context.Context) error {
+	pinger.deadline, pinger.hasDeadline = ctx.Deadline()
+
+	return nil
+}
+
+func TestReadyAppliesShortDependencyDeadline(t *testing.T) {
+	t.Parallel()
+
+	pinger := &deadlineCapturingPinger{}
+	handler := NewHealthCheckHandler("test", pinger)
+
+	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	recorder := httptest.NewRecorder()
+
+	startedAt := time.Now()
+	handler.Ready(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	if !pinger.hasDeadline {
+		t.Fatal("readiness dependency context had no deadline")
+	}
+
+	deadlineDuration := pinger.deadline.Sub(startedAt)
+
+	if deadlineDuration <= 0 || deadlineDuration > readinessTimeout+100*time.Millisecond {
+		t.Fatalf("readiness deadline = %v, want between zero and %v", deadlineDuration, readinessTimeout)
 	}
 }
 

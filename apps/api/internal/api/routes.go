@@ -14,6 +14,7 @@ func (app *Application) Routes() http.Handler {
 
 	router.Use(appmiddleware.BoundedRequestID)
 	router.Use(appmiddleware.RequestLogger(app.logger))
+	router.Use(app.metricsRegistry.Middleware)
 	router.Use(appmiddleware.RecoverPanic(app.logger))
 	router.Use(appmiddleware.SecurityHeaders)
 	router.Use(
@@ -29,7 +30,13 @@ func (app *Application) Routes() http.Handler {
 		router.Get("/", app.healthHandler.Live)
 		router.Get("/live", app.healthHandler.Live)
 		router.Get("/ready", app.healthHandler.Ready)
+		router.Get("/diagnostics", app.diagnosticsHandler.Get)
 	})
+
+	router.With(appmiddleware.RequireLoopback).Get(
+		"/internal/metrics",
+		app.metricsRegistry.ServeHTTP,
+	)
 
 	router.Route("/v1", func(router chi.Router) {
 		router.Route("/auth", func(router chi.Router) {
