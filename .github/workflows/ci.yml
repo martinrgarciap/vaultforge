@@ -30,8 +30,20 @@ jobs:
           --health-retries 5
           --health-start-period 5s
 
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+          --health-start-period 5s
+
     env:
       TEST_DATABASE_URL: postgres://vaultforge:vaultforge_ci_test@127.0.0.1:5432/vaultforge_test?sslmode=disable
+      TEST_REDIS_URL: redis://127.0.0.1:6379/1
 
     defaults:
       run:
@@ -126,8 +138,20 @@ jobs:
           --health-retries 5
           --health-start-period 5s
 
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+          --health-start-period 5s
+
     env:
       E2E_DATABASE_URL: postgres://vaultforge:test@127.0.0.1:5432/vaultforge_e2e?sslmode=disable
+      E2E_REDIS_URL: redis://127.0.0.1:6379/2
 
     steps:
       - name: Check out repository

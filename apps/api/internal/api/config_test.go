@@ -11,10 +11,13 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
 
-const testDatabaseURL = "postgres://vaultforge:test@localhost:5432/vaultforge_test?sslmode=disable"
+const (
+	testDatabaseURL = "postgres://vaultforge:test@localhost:5432/vaultforge_test?sslmode=disable"
+	testRedisURL    = "redis://127.0.0.1:6379/1"
+)
 
 func TestLoadConfigUsesDefaults(t *testing.T) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("APP_ENV", "")
 	t.Setenv("HTTP_ADDR", "")
@@ -44,6 +47,38 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 			"expected database URL %q, got %q",
 			testDatabaseURL,
 			cfg.DatabaseURL,
+		)
+	}
+
+	if cfg.Redis.DialTimeout() != 2*time.Second {
+		t.Errorf(
+			"Redis dial timeout = %v, want %v",
+			cfg.Redis.DialTimeout(),
+			2*time.Second,
+		)
+	}
+
+	if cfg.Redis.ReadTimeout() != time.Second {
+		t.Errorf(
+			"Redis read timeout = %v, want %v",
+			cfg.Redis.ReadTimeout(),
+			time.Second,
+		)
+	}
+
+	if cfg.Redis.WriteTimeout() != time.Second {
+		t.Errorf(
+			"Redis write timeout = %v, want %v",
+			cfg.Redis.WriteTimeout(),
+			time.Second,
+		)
+	}
+
+	if cfg.Redis.PoolTimeout() != 2*time.Second {
+		t.Errorf(
+			"Redis pool timeout = %v, want %v",
+			cfg.Redis.PoolTimeout(),
+			2*time.Second,
 		)
 	}
 
@@ -111,13 +146,18 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 func TestLoadConfigUsesEnvironmentVariables(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	databaseURL := "postgres://vaultforge:test@localhost:5433/custom_test?sslmode=disable"
 
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("HTTP_ADDR", ":9090")
 	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("REDIS_URL", "redis://127.0.0.1:6380/2")
+	t.Setenv("REDIS_DIAL_TIMEOUT", "3s")
+	t.Setenv("REDIS_READ_TIMEOUT", "1500ms")
+	t.Setenv("REDIS_WRITE_TIMEOUT", "1250ms")
+	t.Setenv("REDIS_POOL_TIMEOUT", "4s")
 	t.Setenv(
 		"ACCESS_TOKEN_ISSUER",
 		"custom-issuer",
@@ -167,6 +207,34 @@ func TestLoadConfigUsesEnvironmentVariables(
 			"expected database URL %q, got %q",
 			databaseURL,
 			cfg.DatabaseURL,
+		)
+	}
+
+	if cfg.Redis.DialTimeout() != 3*time.Second {
+		t.Errorf(
+			"Redis dial timeout = %v",
+			cfg.Redis.DialTimeout(),
+		)
+	}
+
+	if cfg.Redis.ReadTimeout() != 1500*time.Millisecond {
+		t.Errorf(
+			"Redis read timeout = %v",
+			cfg.Redis.ReadTimeout(),
+		)
+	}
+
+	if cfg.Redis.WriteTimeout() != 1250*time.Millisecond {
+		t.Errorf(
+			"Redis write timeout = %v",
+			cfg.Redis.WriteTimeout(),
+		)
+	}
+
+	if cfg.Redis.PoolTimeout() != 4*time.Second {
+		t.Errorf(
+			"Redis pool timeout = %v",
+			cfg.Redis.PoolTimeout(),
 		)
 	}
 
@@ -228,7 +296,7 @@ func TestLoadConfigUsesEnvironmentVariables(
 func TestLoadConfigRejectsInvalidEnvironment(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("APP_ENV", "invalid")
 	t.Setenv("HTTP_ADDR", ":8080")
@@ -245,7 +313,7 @@ func TestLoadConfigRejectsInvalidEnvironment(
 func TestLoadConfigRejectsMissingDatabaseURL(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("HTTP_ADDR", ":8080")
@@ -262,7 +330,7 @@ func TestLoadConfigRejectsMissingDatabaseURL(
 func TestLoadConfigRejectsWhitespaceDatabaseURL(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("HTTP_ADDR", ":8080")
@@ -276,10 +344,88 @@ func TestLoadConfigRejectsWhitespaceDatabaseURL(
 	}
 }
 
+func TestLoadConfigRejectsMissingRedisURL(t *testing.T) {
+	setValidConfigEnvironment(t)
+
+	t.Setenv("DATABASE_URL", testDatabaseURL)
+	t.Setenv("REDIS_URL", "")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected missing Redis URL to return an error")
+	}
+}
+
+func TestLoadConfigRejectsMalformedRedisURL(t *testing.T) {
+	const secretMarker = "synthetic-redis-password-marker"
+
+	setValidConfigEnvironment(t)
+
+	t.Setenv("DATABASE_URL", testDatabaseURL)
+	t.Setenv(
+		"REDIS_URL",
+		"not-a-redis-url://:"+secretMarker,
+	)
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected malformed Redis URL to return an error")
+	}
+
+	if strings.Contains(err.Error(), secretMarker) {
+		t.Fatal("configuration error exposed the Redis URL")
+	}
+}
+
+func TestLoadConfigRejectsInvalidRedisTimeouts(t *testing.T) {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{
+			name:  "malformed dial timeout",
+			key:   "REDIS_DIAL_TIMEOUT",
+			value: "invalid",
+		},
+		{
+			name:  "zero read timeout",
+			key:   "REDIS_READ_TIMEOUT",
+			value: "0s",
+		},
+		{
+			name:  "negative write timeout",
+			key:   "REDIS_WRITE_TIMEOUT",
+			value: "-1s",
+		},
+		{
+			name:  "zero pool timeout",
+			key:   "REDIS_POOL_TIMEOUT",
+			value: "0s",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			setValidConfigEnvironment(t)
+
+			t.Setenv("DATABASE_URL", testDatabaseURL)
+			t.Setenv(testCase.key, testCase.value)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal(
+					"expected invalid Redis timeout to return an error",
+				)
+			}
+		})
+	}
+}
+
 func TestLoadConfigRejectsMissingSigningSeed(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("DATABASE_URL", testDatabaseURL)
 	t.Setenv(
@@ -300,7 +446,7 @@ func TestLoadConfigRejectsMalformedSigningSeed(
 ) {
 	const secretMarker = "synthetic-invalid-signing-seed-marker"
 
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("DATABASE_URL", testDatabaseURL)
 	t.Setenv(
@@ -328,7 +474,7 @@ func TestLoadConfigRejectsMalformedSigningSeed(
 func TestLoadConfigRejectsIncorrectSigningSeedLength(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("DATABASE_URL", testDatabaseURL)
 	t.Setenv(
@@ -388,7 +534,7 @@ func TestLoadConfigRejectsInvalidTokenDurations(
 		t.Run(
 			testCase.name,
 			func(t *testing.T) {
-				setValidTokenEnvironment(t)
+				setValidConfigEnvironment(t)
 
 				t.Setenv(
 					"DATABASE_URL",
@@ -413,7 +559,7 @@ func TestLoadConfigRejectsInvalidTokenDurations(
 func TestLoadConfigRejectsInvalidTokenIdentity(
 	t *testing.T,
 ) {
-	setValidTokenEnvironment(t)
+	setValidConfigEnvironment(t)
 
 	t.Setenv("DATABASE_URL", testDatabaseURL)
 	t.Setenv(
@@ -429,8 +575,14 @@ func TestLoadConfigRejectsInvalidTokenIdentity(
 	}
 }
 
-func setValidTokenEnvironment(t *testing.T) {
+func setValidConfigEnvironment(t *testing.T) {
 	t.Helper()
+
+	t.Setenv("REDIS_URL", testRedisURL)
+	t.Setenv("REDIS_DIAL_TIMEOUT", "")
+	t.Setenv("REDIS_READ_TIMEOUT", "")
+	t.Setenv("REDIS_WRITE_TIMEOUT", "")
+	t.Setenv("REDIS_POOL_TIMEOUT", "")
 
 	t.Setenv("ACCESS_TOKEN_ISSUER", "")
 	t.Setenv("ACCESS_TOKEN_AUDIENCE", "")

@@ -6,12 +6,16 @@ import (
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/health"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/store"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
+
+const dependencyStartupTimeout = 5 * time.Second
 
 func main() {
 	cfg, err := api.LoadConfig()
@@ -28,8 +32,7 @@ func main() {
 		_ = logger.Sync()
 	}()
 
-	accessTokenManager, err :=
-		cfg.Tokens.NewAccessTokenManager()
+	accessTokenManager, err := cfg.Tokens.NewAccessTokenManager()
 	if err != nil {
 		logger.Errorw(
 			"access token manager initialization failed",
@@ -41,7 +44,7 @@ func main() {
 
 	databaseContext, cancelDatabase := context.WithTimeout(
 		context.Background(),
-		5*time.Second,
+		dependencyStartupTimeout,
 	)
 
 	databasePool, err := db.New(
@@ -66,6 +69,37 @@ func main() {
 		"database connection established",
 	)
 
+	redisContext, cancelRedis := context.WithTimeout(
+		context.Background(),
+		dependencyStartupTimeout,
+	)
+
+	redisClient, err := redisclient.New(
+		redisContext,
+		cfg.Redis,
+	)
+
+	cancelRedis()
+
+	if err != nil {
+		logger.Errorw(
+			"Redis initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			logger.Warnw("Redis client close failed")
+		}
+	}()
+
+	logger.Infow(
+		"Redis connection established",
+	)
+
 	userStore := store.NewUserStore(
 		databasePool,
 	)
@@ -79,8 +113,7 @@ func main() {
 		databasePool,
 	)
 
-	refreshTokenGenerator :=
-		session.NewRefreshTokenGenerator()
+	refreshTokenGenerator := session.NewRefreshTokenGenerator()
 
 	sessionService := session.NewService(
 		authService,
@@ -93,10 +126,15 @@ func main() {
 	vaultStore := store.NewVaultStore(databasePool)
 	vaultService := vault.NewService(vaultStore)
 
+	readinessPinger := health.NewReadinessPinger(
+		databasePool,
+		redisClient,
+	)
+
 	app := api.NewApplication(
 		cfg,
 		logger,
-		databasePool,
+		readinessPinger,
 		authService,
 		sessionService,
 		vaultService,

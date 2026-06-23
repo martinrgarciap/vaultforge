@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
 
@@ -21,6 +22,7 @@ type Config struct {
 	Env            string
 	Addr           string
 	DatabaseURL    string
+	Redis          redisclient.Config
 	Tokens         session.TokenConfig
 	SessionCookies sessioncookie.Config
 }
@@ -48,17 +50,70 @@ func LoadConfig() (Config, error) {
 		)
 	}
 
+	redisConfig, err := loadRedisConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	tokenConfig, err := loadTokenConfig()
 	if err != nil {
 		return Config{}, err
 	}
 
+	cfg.Redis = redisConfig
 	cfg.Tokens = tokenConfig
 	cfg.SessionCookies = sessioncookie.NewConfig(
 		cfg.Env == "production",
 	)
 
 	return cfg, nil
+}
+
+func loadRedisConfig() (redisclient.Config, error) {
+	dialTimeout, err := loadDuration(
+		"REDIS_DIAL_TIMEOUT",
+		redisclient.DefaultDialTimeout,
+	)
+	if err != nil {
+		return redisclient.Config{}, err
+	}
+
+	readTimeout, err := loadDuration(
+		"REDIS_READ_TIMEOUT",
+		redisclient.DefaultReadTimeout,
+	)
+	if err != nil {
+		return redisclient.Config{}, err
+	}
+
+	writeTimeout, err := loadDuration(
+		"REDIS_WRITE_TIMEOUT",
+		redisclient.DefaultWriteTimeout,
+	)
+	if err != nil {
+		return redisclient.Config{}, err
+	}
+
+	poolTimeout, err := loadDuration(
+		"REDIS_POOL_TIMEOUT",
+		redisclient.DefaultPoolTimeout,
+	)
+	if err != nil {
+		return redisclient.Config{}, err
+	}
+
+	config, err := redisclient.NewConfig(
+		os.Getenv("REDIS_URL"),
+		dialTimeout,
+		readTimeout,
+		writeTimeout,
+		poolTimeout,
+	)
+	if err != nil {
+		return redisclient.Config{}, err
+	}
+
+	return config, nil
 }
 
 func loadTokenConfig() (

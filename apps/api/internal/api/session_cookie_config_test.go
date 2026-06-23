@@ -27,7 +27,7 @@ func TestLoadConfigCreatesSessionCookieConfig(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			setValidTokenEnvironment(t)
+			setValidConfigEnvironment(t)
 
 			t.Setenv("APP_ENV", testCase.environment)
 			t.Setenv("DATABASE_URL", testDatabaseURL)

@@ -10,8 +10,10 @@ POSTGRES_USER := vaultforge
 POSTGRES_DATABASE := vaultforge
 POSTGRES_TEST_DATABASE := vaultforge_test
 POSTGRES_E2E_DATABASE := vaultforge_e2e
+REDIS_SERVICE := redis
 
 E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/vaultforge_e2e?sslmode=disable
+E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
 
 .PHONY: \
 	setup \
@@ -50,6 +52,7 @@ E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/va
 	db-setup \
 	db-create-test \
 	db-shell \
+	redis-shell \
 	migrate-create \
 	migrate-up \
 	migrate-down \
@@ -79,6 +82,8 @@ test: test-api test-web
 test-api:
 	@test -n "$$TEST_DATABASE_URL" || \
 		(echo "TEST_DATABASE_URL is required" && exit 1)
+	@test -n "$$TEST_REDIS_URL" || \
+		(echo "TEST_REDIS_URL is required" && exit 1)
 	cd $(API_DIR) && go test -race -count=1 ./...
 
 test-web:
@@ -87,6 +92,7 @@ test-web:
 test-e2e: db-reset-e2e
 	cd $(WEB_DIR) && \
 		E2E_DATABASE_URL="$(E2E_DATABASE_URL)" \
+		E2E_REDIS_URL="$(E2E_REDIS_URL)" \
 		npm run test:e2e
 
 lint: lint-api lint-web
@@ -132,16 +138,19 @@ verify-web: format-check-web lint-web typecheck-web test-web build-web
 verify-e2e: test-e2e
 
 compose-up:
-	docker compose -f $(COMPOSE_FILE) up -d $(POSTGRES_SERVICE)
+	docker compose -f $(COMPOSE_FILE) up -d --wait \
+		$(POSTGRES_SERVICE) $(REDIS_SERVICE)
 
 compose-stop:
-	docker compose -f $(COMPOSE_FILE) stop $(POSTGRES_SERVICE)
+	docker compose -f $(COMPOSE_FILE) stop \
+		$(POSTGRES_SERVICE) $(REDIS_SERVICE)
 
 compose-down:
 	docker compose -f $(COMPOSE_FILE) down
 
 compose-logs:
-	docker compose -f $(COMPOSE_FILE) logs -f $(POSTGRES_SERVICE)
+	docker compose -f $(COMPOSE_FILE) logs -f \
+		$(POSTGRES_SERVICE) $(REDIS_SERVICE)
 
 compose-ps:
 	docker compose -f $(COMPOSE_FILE) ps
@@ -210,6 +219,9 @@ db-shell:
 		psql \
 		-U $(POSTGRES_USER) \
 		-d $(POSTGRES_DATABASE)
+
+redis-shell:
+	docker compose -f $(COMPOSE_FILE) exec $(REDIS_SERVICE) redis-cli
 
 migrate-create:
 	@test -n "$(name)" || \

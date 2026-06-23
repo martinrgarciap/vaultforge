@@ -10,13 +10,9 @@ import (
 
 const readinessTimeout = 2 * time.Second
 
-type DatabasePinger interface {
-	Ping(context.Context) error
-}
-
 type Handler struct {
-	environment    string
-	databasePinger DatabasePinger
+	environment     string
+	readinessPinger Pinger
 }
 
 type healthResponse struct {
@@ -26,11 +22,11 @@ type healthResponse struct {
 
 func NewHealthCheckHandler(
 	environment string,
-	databasePinger DatabasePinger,
+	readinessPinger Pinger,
 ) *Handler {
 	return &Handler{
-		environment:    environment,
-		databasePinger: databasePinger,
+		environment:     environment,
+		readinessPinger: readinessPinger,
 	}
 }
 
@@ -49,7 +45,7 @@ func (handler *Handler) Ready(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if handler.databasePinger == nil {
+	if handler.readinessPinger == nil {
 		handler.writeResponse(
 			w,
 			http.StatusServiceUnavailable,
@@ -65,7 +61,7 @@ func (handler *Handler) Ready(
 	)
 	defer cancel()
 
-	if err := handler.databasePinger.Ping(ctx); err != nil {
+	if err := handler.readinessPinger.Ping(ctx); err != nil {
 		handler.writeResponse(
 			w,
 			http.StatusServiceUnavailable,

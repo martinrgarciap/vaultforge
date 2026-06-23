@@ -26,7 +26,7 @@ type Application struct {
 func NewApplication(
 	cfg Config,
 	logger *zap.SugaredLogger,
-	databasePinger health.DatabasePinger,
+	readinessPinger health.Pinger,
 	authService authhandler.RegistrationService,
 	sessionService *session.Service,
 	vaultService vaulthandler.VaultService,
@@ -39,7 +39,7 @@ func NewApplication(
 		logger: logger,
 		healthHandler: health.NewHealthCheckHandler(
 			cfg.Env,
-			databasePinger,
+			readinessPinger,
 		),
 		authHandler: authhandler.New(
 			authService,
