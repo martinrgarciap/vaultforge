@@ -11,7 +11,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const maxAccessTokenLength = 4096
+const (
+	maxAccessTokenLength = 4096
+	maxIdentifierBytes   = 256
+)
 
 type Principal struct {
 	UserID    string
@@ -286,6 +289,7 @@ func validConfigurationValue(
 
 func validIdentifier(value string) bool {
 	return value != "" &&
+		len(value) <= maxIdentifierBytes &&
 		!strings.ContainsAny(
 			value,
 			" \t\r\n",

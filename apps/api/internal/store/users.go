@@ -39,6 +39,19 @@ func (store *UserStore) Create(
 	ctx context.Context,
 	user *User,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if store == nil ||
+		store.database == nil ||
+		user == nil {
+		return fmt.Errorf(
+			"create user: %w",
+			ErrDatabase,
+		)
+	}
+
 	query := `
 		INSERT INTO users (
 			email,
@@ -83,6 +96,18 @@ func (store *UserStore) GetByEmail(
 	ctx context.Context,
 	email string,
 ) (*User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if store == nil ||
+		store.database == nil {
+		return nil, fmt.Errorf(
+			"get user by email: %w",
+			ErrDatabase,
+		)
+	}
+
 	query := `
 		SELECT
 			id::text,

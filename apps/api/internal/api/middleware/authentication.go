@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxBearerTokenBytes = 4 * 1024
+
 type AccessTokenAuthenticator interface {
 	AuthenticateAccessToken(
 		ctx context.Context,
@@ -128,6 +130,7 @@ func bearerToken(
 	if !found ||
 		!strings.EqualFold(scheme, "Bearer") ||
 		tokenValue == "" ||
+		len(tokenValue) > maxBearerTokenBytes ||
 		strings.ContainsAny(
 			tokenValue,
 			" \t\r\n",

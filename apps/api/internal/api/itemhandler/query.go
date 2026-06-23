@@ -9,16 +9,18 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
+const maxItemRawQueryBytes = 4 * 1024
+
 var errItemQueryInvalid = errors.New("item query is invalid")
 
 func parseItemListOptions(
 	r *http.Request,
 ) (vault.ItemListOptions, error) {
-	if r == nil || r.URL == nil {
-		return vault.ItemListOptions{}, errItemQueryInvalid
+	values, err := parseBoundedItemQuery(r)
+	if err != nil {
+		return vault.ItemListOptions{},
+			errItemQueryInvalid
 	}
-
-	values := r.URL.Query()
 
 	if err := validateItemQuery(
 		values,
@@ -72,11 +74,10 @@ func parseItemListOptions(
 func parseItemState(
 	r *http.Request,
 ) (vault.ItemListState, error) {
-	if r == nil || r.URL == nil {
+	values, err := parseBoundedItemQuery(r)
+	if err != nil {
 		return "", errItemQueryInvalid
 	}
-
-	values := r.URL.Query()
 
 	if err := validateItemQuery(
 		values,
@@ -99,6 +100,26 @@ func parseItemState(
 	}
 
 	return state, nil
+}
+
+func parseBoundedItemQuery(
+	r *http.Request,
+) (url.Values, error) {
+	if r == nil ||
+		r.URL == nil ||
+		len(r.URL.RawQuery) >
+			maxItemRawQueryBytes {
+		return nil, errItemQueryInvalid
+	}
+
+	values, err := url.ParseQuery(
+		r.URL.RawQuery,
+	)
+	if err != nil {
+		return nil, errItemQueryInvalid
+	}
+
+	return values, nil
 }
 
 func validateItemQuery(

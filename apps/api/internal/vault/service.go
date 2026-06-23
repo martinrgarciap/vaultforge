@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const maxIdentifierBytes = 256
+
 type Store interface {
 	Create(
 		ctx context.Context,
@@ -205,6 +207,7 @@ func validStoredVault(
 
 func validIdentifier(value string) bool {
 	return value != "" &&
+		len(value) <= maxIdentifierBytes &&
 		!strings.ContainsAny(
 			value,
 			" \t\r\n",

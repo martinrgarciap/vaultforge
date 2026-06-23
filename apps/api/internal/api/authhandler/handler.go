@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxAuthRequestBodyBytes int64 = 64 * 1024
+const maxAuthRequestBodyBytes int64 = 4 * 1024
 
 type RegistrationService interface {
 	Register(

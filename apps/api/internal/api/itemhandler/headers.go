@@ -9,6 +9,8 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
+const maxIfMatchHeaderBytes = 32
+
 var (
 	errIfMatchRequired        = errors.New("If-Match header is required")
 	errIfMatchInvalid         = errors.New("If-Match header is invalid")
@@ -43,6 +45,10 @@ func expectedItemVersion(r *http.Request) (int, error) {
 }
 
 func parseItemETag(value string) (int, error) {
+	if len(value) > maxIfMatchHeaderBytes {
+		return 0, errIfMatchInvalid
+	}
+
 	normalized := strings.TrimSpace(value)
 
 	if len(normalized) < 3 ||

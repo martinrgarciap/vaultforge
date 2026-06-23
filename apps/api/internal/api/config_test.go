@@ -578,6 +578,13 @@ func TestLoadConfigRejectsInvalidTokenIdentity(
 func setValidConfigEnvironment(t *testing.T) {
 	t.Helper()
 
+	t.Setenv("HTTP_REQUEST_TIMEOUT", "")
+	t.Setenv("HTTP_READ_HEADER_TIMEOUT", "")
+	t.Setenv("HTTP_READ_TIMEOUT", "")
+	t.Setenv("HTTP_WRITE_TIMEOUT", "")
+	t.Setenv("HTTP_IDLE_TIMEOUT", "")
+	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "")
+
 	t.Setenv(
 		"RATE_LIMIT_IDENTITY_HMAC_KEY_BASE64",
 		base64.StdEncoding.EncodeToString(

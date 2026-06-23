@@ -2,11 +2,9 @@ package api
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 )
@@ -14,11 +12,15 @@ import (
 func (app *Application) Routes() http.Handler {
 	router := chi.NewRouter()
 
-	router.Use(chimiddleware.RequestID)
+	router.Use(appmiddleware.BoundedRequestID)
 	router.Use(appmiddleware.RequestLogger(app.logger))
 	router.Use(appmiddleware.RecoverPanic(app.logger))
 	router.Use(appmiddleware.SecurityHeaders)
-	router.Use(chimiddleware.Timeout(60 * time.Second))
+	router.Use(
+		appmiddleware.RequestTimeout(
+			app.config.HTTP.RequestTimeout(),
+		),
+	)
 
 	router.NotFound(app.notFoundResponse)
 	router.MethodNotAllowed(app.methodNotAllowedResponse)

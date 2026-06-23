@@ -8,29 +8,33 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
-const (
-	readHeaderTimeout = 5 * time.Second
-	readTimeout       = 10 * time.Second
-	writeTimeout      = 30 * time.Second
-	idleTimeout       = 1 * time.Minute
-	shutdownTimeout   = 5 * time.Second
-)
+const maxHTTPHeaderBytes = 32 * 1024
+
+func newHTTPServer(
+	address string,
+	handler http.Handler,
+	config HTTPConfig,
+) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: config.ReadHeaderTimeout(),
+		ReadTimeout:       config.ReadTimeout(),
+		WriteTimeout:      config.WriteTimeout(),
+		IdleTimeout:       config.IdleTimeout(),
+		MaxHeaderBytes:    maxHTTPHeaderBytes,
+	}
+}
 
 func (app *Application) Run() error {
-	server := &http.Server{
-		Addr:              app.config.Addr,
-		Handler:           app.Routes(),
-		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-	}
+	server := newHTTPServer(
+		app.config.Addr,
+		app.Routes(),
+		app.config.HTTP,
+	)
 
-	// This context is cancelled when the application receives Ctrl+C
-	// or a termination signal from the operating system.
 	signalContext, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -38,7 +42,6 @@ func (app *Application) Run() error {
 	)
 	defer stop()
 
-	// ListenAndServe blocks, so start the server in a goroutine.
 	serverErrors := make(chan error, 1)
 
 	go func() {
@@ -50,15 +53,19 @@ func (app *Application) Run() error {
 
 		err := server.ListenAndServe()
 
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err != nil &&
+			!errors.Is(
+				err,
+				http.ErrServerClosed,
+			) {
 			serverErrors <- err
+
 			return
 		}
 
 		serverErrors <- nil
 	}()
 
-	// Wait until either the server fails or a shutdown signal arrives.
 	select {
 	case err := <-serverErrors:
 		return err
@@ -67,23 +74,25 @@ func (app *Application) Run() error {
 		app.logger.Infow(
 			"shutdown signal received",
 		)
-		// Restore the operating system's normal signal behavior.
-		// A second Ctrl+C can then force the program to exit.
+
 		stop()
 	}
 
-	// Give active requests up to five seconds to finish.
 	shutdownContext, cancel := context.WithTimeout(
 		context.Background(),
-		shutdownTimeout,
+		app.config.HTTP.ShutdownTimeout(),
 	)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownContext); err != nil {
-		return fmt.Errorf("shut down HTTP server: %w", err)
+	if err := server.Shutdown(
+		shutdownContext,
+	); err != nil {
+		return fmt.Errorf(
+			"shut down HTTP server: %w",
+			err,
+		)
 	}
 
-	// Wait for ListenAndServe to return after Shutdown closes the server.
 	if err := <-serverErrors; err != nil {
 		return err
 	}
