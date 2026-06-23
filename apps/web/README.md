@@ -208,12 +208,15 @@ Playwright owns:
 e2e/**/*.spec.ts
 ```
 
-The current Vitest suite covers API helpers, authentication state, runtime contracts, route guards, vault pages, item workflows, session workflows, and error states.
+The current Vitest suite covers API helpers, authentication state, runtime contracts, route guards, vault pages, item workflows, session workflows, managed clipboard clearing, visible copy feedback, timed sensitive-value reveals, inactivity privacy resets, modal focus behavior, and error states.
 
 The real-stack Playwright workflow covers:
 
 - Registration and login
-- Empty browser storage for access tokens
+- Empty `localStorage`, `sessionStorage`, and IndexedDB
+- Sensitive-value masking before explicit reveal
+- Clipboard copy feedback without browser-persistence or URL leakage
+- Absence of synthetic passwords in browser console messages and page errors
 - Presence of an `HttpOnly` session cookie
 - Vault creation
 - Item creation
@@ -263,6 +266,8 @@ Never expose or log:
 Refresh tokens are managed by the API through an `HttpOnly` cookie. The client reads only the separate CSRF cookie required for refresh.
 
 Use synthetic vault data only. Current item payloads are visible to the Go API and PostgreSQL because browser-side encryption has not been implemented.
+
+Sensitive values are masked by default and automatically re-mask 15 seconds after reveal. Successful copies display temporary visual confirmation and accessible status feedback. VaultForge attempts to clear copied values after 30 seconds only when browser support allows reading the clipboard and the clipboard still contains the copied value. Revealed values are also hidden after five minutes of inactivity or when the browser tab becomes hidden. These controls do not cryptographically lock or encrypt the vault.
 
 ## Related documentation
 

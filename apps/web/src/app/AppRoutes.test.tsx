@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/ApiError";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue, AuthStatus } from "../auth/types";
+import { PrivacyProvider } from "../privacy/PrivacyProvider";
 import { AppRoutes } from "./AppRoutes";
 
 function createAuthValue(
@@ -33,7 +34,9 @@ function renderRoute(
   render(
     <MemoryRouter initialEntries={[path]}>
       <AuthContext.Provider value={createAuthValue(authOverrides)}>
-        <AppRoutes />
+        <PrivacyProvider>
+          <AppRoutes />
+        </PrivacyProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
   );
@@ -259,7 +262,9 @@ describe("AppRoutes", () => {
 
       return (
         <AuthContext.Provider value={value}>
-          <AppRoutes />
+          <PrivacyProvider>
+            <AppRoutes />
+          </PrivacyProvider>
         </AuthContext.Provider>
       );
     }
@@ -294,7 +299,7 @@ describe("AppRoutes", () => {
 
     expect(
       screen.getByText(
-        "Use synthetic data only. Browser-side encryption is not implemented.",
+        "Use synthetic data only. Browser-side encryption is not implemented. Revealed values are hidden after inactivity or when the tab is hidden.",
       ),
     ).toBeInTheDocument();
   });

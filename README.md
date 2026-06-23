@@ -25,6 +25,8 @@ graph LR
 
 The current React client exercises the complete user-facing authentication, session, vault, and item workflows through relative API URLs. Vite proxies `/v1` and `/health` to the Go API during development.
 
+Sensitive values are masked by default and automatically re-mask 15 seconds after being revealed. Copying provides temporary check-icon feedback, a visible confirmation message, and an accessible status announcement. When browser support allows it, VaultForge attempts to clear copied values after 30 seconds without overwriting newer clipboard contents. Revealed values are also hidden after five minutes of inactivity or when the browser tab becomes hidden. These are privacy safeguards only and do not cryptographically lock or encrypt the vault.
+
 The current Go API provides:
 
 - Account registration and login
@@ -45,7 +47,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. Reduced frontend finishing work, Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 

@@ -1,10 +1,23 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 interface Credentials {
   email: string;
   password: string;
+}
+
+interface BrowserPrivacySnapshot {
+  localStorageEntryCount: number;
+  sessionStorageEntryCount: number;
+  indexedDBInspectionSupported: boolean;
+  indexedDBCount: number;
+  url: string;
+}
+
+interface BrowserOutputCapture {
+  consoleMessages: string[];
+  pageErrors: string[];
 }
 
 const responsiveViewports = [
@@ -35,6 +48,101 @@ async function expectNoDocumentOverflow(page: Page): Promise<void> {
       }),
     )
     .toBe(true);
+}
+
+async function readBrowserPrivacySnapshot(
+  page: Page,
+): Promise<BrowserPrivacySnapshot> {
+  return page.evaluate(async () => {
+    const indexedDBInspectionSupported =
+      typeof indexedDB.databases === "function";
+
+    const databases = indexedDBInspectionSupported
+      ? await indexedDB.databases()
+      : [];
+
+    return {
+      localStorageEntryCount: window.localStorage.length,
+      sessionStorageEntryCount: window.sessionStorage.length,
+      indexedDBInspectionSupported,
+      indexedDBCount: databases.length,
+      url: window.location.href,
+    };
+  });
+}
+
+async function expectNoSensitiveBrowserPersistence(
+  page: Page,
+  sensitiveValues: string[],
+): Promise<void> {
+  const snapshot = await readBrowserPrivacySnapshot(page);
+
+  expect(
+    snapshot.localStorageEntryCount,
+    "localStorage must remain empty.",
+  ).toBe(0);
+
+  expect(
+    snapshot.sessionStorageEntryCount,
+    "sessionStorage must remain empty.",
+  ).toBe(0);
+
+  expect(
+    snapshot.indexedDBInspectionSupported,
+    "The Chromium smoke test must be able to inspect IndexedDB databases.",
+  ).toBe(true);
+
+  expect(
+    snapshot.indexedDBCount,
+    "VaultForge must not create an IndexedDB database.",
+  ).toBe(0);
+
+  let decodedURL = snapshot.url;
+
+  try {
+    decodedURL = decodeURIComponent(snapshot.url);
+  } catch {
+    decodedURL = snapshot.url;
+  }
+
+  const urlContainsSensitiveValue = sensitiveValues.some(
+    (sensitiveValue) =>
+      snapshot.url.includes(sensitiveValue) ||
+      decodedURL.includes(sensitiveValue),
+  );
+
+  expect(
+    urlContainsSensitiveValue,
+    "The browser URL must not contain synthetic sensitive values.",
+  ).toBe(false);
+}
+
+function captureBrowserOutput(page: Page, output: BrowserOutputCapture): void {
+  page.on("console", (message) => {
+    output.consoleMessages.push(message.text());
+  });
+
+  page.on("pageerror", (error) => {
+    output.pageErrors.push(error.message);
+  });
+}
+
+function expectNoSensitiveBrowserOutput(
+  output: BrowserOutputCapture,
+  sensitiveValues: string[],
+): void {
+  const capturedOutput = [...output.consoleMessages, ...output.pageErrors].join(
+    "\n",
+  );
+
+  const outputContainsSensitiveValue = sensitiveValues.some((sensitiveValue) =>
+    capturedOutput.includes(sensitiveValue),
+  );
+
+  expect(
+    outputContainsSensitiveValue,
+    "Browser console messages and page errors must not contain synthetic sensitive values.",
+  ).toBe(false);
 }
 
 async function expectNoAccessibilityViolations(page: Page): Promise<void> {
@@ -137,13 +245,15 @@ async function loginSecondBrowser(
   origin: string,
   credentials: Credentials,
   itemURL: string,
+  browserOutput: BrowserOutputCapture,
 ): Promise<{
   page: Page;
   close: () => Promise<void>;
 }> {
   const context = await browser.newContext();
-
   const page = await context.newPage();
+
+  captureBrowserOutput(page, browserOutput);
 
   await page.goto(`${origin}/login`);
   await login(page, credentials);
@@ -162,6 +272,13 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
   browser,
   page,
 }) => {
+  const browserOutput: BrowserOutputCapture = {
+    consoleMessages: [],
+    pageErrors: [],
+  };
+
+  captureBrowserOutput(page, browserOutput);
+
   const runID = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const credentials: Credentials = {
@@ -172,6 +289,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
   const vaultName = `E2E Vault ${runID}`;
   const originalTitle = "E2E Login";
   const concurrentTitle = "Updated From Second Session";
+  const syntheticItemPassword = "synthetic-password";
 
   for (const viewport of responsiveViewports) {
     await page.setViewportSize({
@@ -230,15 +348,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await login(page, credentials);
 
-  const browserStorage = await page.evaluate(() => ({
-    localStorageKeys: Object.keys(window.localStorage),
-    sessionStorageKeys: Object.keys(window.sessionStorage),
-  }));
-
-  expect(browserStorage).toEqual({
-    localStorageKeys: [],
-    sessionStorageKeys: [],
-  });
+  await expectNoSensitiveBrowserPersistence(page, [credentials.password]);
 
   const cookies = await page.context().cookies();
 
@@ -291,7 +401,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await itemDialog.getByLabel("New item username").fill("synthetic-user");
 
-  await itemDialog.getByLabel("New item password").fill("synthetic-password");
+  await itemDialog.getByLabel("New item password").fill(syntheticItemPassword);
 
   await itemDialog
     .getByRole("button", {
@@ -318,6 +428,55 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     }),
   ).toBeVisible();
 
+  await expect(page.getByText(syntheticItemPassword)).toHaveCount(0);
+
+  const showPasswordButton = page.getByRole("button", {
+    name: "Show password",
+  });
+
+  await expect(showPasswordButton).toBeVisible();
+
+  await expectNoSensitiveBrowserPersistence(page, [
+    credentials.password,
+    syntheticItemPassword,
+  ]);
+
+  await showPasswordButton.click();
+
+  await expect(page.getByText(syntheticItemPassword)).toBeVisible();
+
+  await expectNoSensitiveBrowserPersistence(page, [
+    credentials.password,
+    syntheticItemPassword,
+  ]);
+
+  const origin = new URL(page.url()).origin;
+
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin,
+  });
+
+  const copyPasswordButton = page.getByRole("button", {
+    name: "Copy password",
+  });
+
+  await copyPasswordButton.click();
+
+  await expect(page.getByTitle("Password copied")).toBeVisible();
+
+  await expectNoSensitiveBrowserPersistence(page, [
+    credentials.password,
+    syntheticItemPassword,
+  ]);
+
+  await page
+    .getByRole("button", {
+      name: "Hide password",
+    })
+    .click();
+
+  await expect(page.getByText(syntheticItemPassword)).toHaveCount(0);
+
   const itemURL = page.url();
 
   // The access token is memory-only. Reloading must
@@ -330,13 +489,19 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     }),
   ).toBeVisible();
 
-  const origin = new URL(page.url()).origin;
+  await expect(page.getByText(syntheticItemPassword)).toHaveCount(0);
+
+  await expectNoSensitiveBrowserPersistence(page, [
+    credentials.password,
+    syntheticItemPassword,
+  ]);
 
   const secondBrowser = await loginSecondBrowser(
     browser,
     origin,
     credentials,
     itemURL,
+    browserOutput,
   );
 
   try {
@@ -496,6 +661,11 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     await expect(page.getByRole("status")).toContainText(
       "Your session is not active. Sign in to continue.",
     );
+
+    expectNoSensitiveBrowserOutput(browserOutput, [
+      credentials.password,
+      syntheticItemPassword,
+    ]);
   } finally {
     await secondBrowser.close();
   }

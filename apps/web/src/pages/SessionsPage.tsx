@@ -203,15 +203,6 @@ export function SessionsPage() {
         {status === "authenticated" ? (
           <div className="page-heading-actions">
             <button
-              className="secondary-button"
-              type="button"
-              onClick={refreshSessions}
-              disabled={isLoading || isActioning}
-            >
-              Refresh
-            </button>
-
-            <button
               className="danger-button"
               type="button"
               onClick={() => {

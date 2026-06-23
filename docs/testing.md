@@ -185,6 +185,10 @@ The workflow verifies:
 
 - Registration and login
 - In-memory access-token handling
+- Empty `localStorage`, `sessionStorage`, and IndexedDB
+- Sensitive-value masking before explicit reveal
+- Clipboard copy feedback without browser-persistence or URL leakage
+- Absence of synthetic passwords in browser console messages and page errors
 - `HttpOnly` refresh-cookie behavior
 - Authentication restoration after reload
 - Vault creation
@@ -220,6 +224,11 @@ Automated tests include regression coverage for:
 - Raw route, SQL, Redis, token, cookie, or resource-identifier leakage into spans
 - PostgreSQL and Redis failures
 - Concurrent rate-limit enforcement
+- Clipboard clearing success, failure, replacement, and cleanup behavior
+- Temporary copy confirmation and timed reveal behavior
+- Inactivity and hidden-tab sensitive-value resets
+- Modal focus containment and restoration
+- Browser storage, URL, console, and page-error leakage
 
 Security regressions must fail the build.
 

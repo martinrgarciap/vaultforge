@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +12,7 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue } from "../auth/types";
+import { PrivacyProvider } from "../privacy/PrivacyProvider";
 import { ItemWorkspace } from "./ItemWorkspace";
 
 const loginItem = {
@@ -81,17 +88,19 @@ function renderWorkspace(requestImplementation: RequestImplementation) {
   render(
     <MemoryRouter initialEntries={["/vaults/vault-123"]}>
       <AuthContext.Provider value={authValue}>
-        <Routes>
-          <Route
-            path="/vaults/:vaultId"
-            element={<ItemWorkspace vaultId="vault-123" />}
-          />
+        <PrivacyProvider>
+          <Routes>
+            <Route
+              path="/vaults/:vaultId"
+              element={<ItemWorkspace vaultId="vault-123" />}
+            />
 
-          <Route
-            path="/vaults/:vaultId/items/:itemId"
-            element={<LocationResult />}
-          />
-        </Routes>
+            <Route
+              path="/vaults/:vaultId/items/:itemId"
+              element={<LocationResult />}
+            />
+          </Routes>
+        </PrivacyProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
   );
@@ -183,7 +192,9 @@ describe("ItemWorkspace", () => {
       }),
     );
 
-    expect(writeTextMock).toHaveBeenCalledWith("demo-user");
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("demo-user");
+    });
 
     expect(
       screen.queryByText("/vaults/vault-123/items/login-123?state=active"),
@@ -248,6 +259,60 @@ describe("ItemWorkspace", () => {
         "/vaults/vault-123/items/login-123?state=deleted",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("keeps loaded item tabs available when switching between states", async () => {
+    const deletedItem = {
+      ...noteItem,
+      version: 3,
+      deletedAt: "2026-06-22T13:00:00Z",
+    };
+
+    const requestMock = vi.fn(async (path: string) => {
+      if (path.includes("state=deleted")) {
+        return {
+          items: [deletedItem],
+        };
+      }
+
+      return {
+        items: [loginItem],
+      };
+    });
+
+    renderWorkspace(requestMock);
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Open Test Login",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Deleted Items",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Open Synthetic Note",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Active Items",
+      }),
+    );
+
+    expect(
+      screen.getByRole("link", {
+        name: "Open Test Login",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText("Loading items...")).not.toBeInTheDocument();
   });
 
   it("creates an item through the modal", async () => {
@@ -407,7 +472,7 @@ describe("ItemWorkspace", () => {
           "Vault item operations are temporarily unavailable.",
         ),
       )
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         items: [],
       });
 
@@ -431,6 +496,6 @@ describe("ItemWorkspace", () => {
       await screen.findByText("No active items are stored in this vault."),
     ).toBeInTheDocument();
 
-    expect(requestMock).toHaveBeenCalledTimes(2);
+    expect(requestMock).toHaveBeenCalledTimes(4);
   });
 });

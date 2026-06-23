@@ -16,6 +16,29 @@ interface ItemWorkspaceProps {
   vaultId: string;
 }
 
+interface ItemListCacheEntry {
+  items: VaultItem[];
+  nextCursor?: string;
+  status: "idle" | "loading" | "loaded" | "error";
+  error?: unknown;
+}
+
+type ItemListCache = Record<ItemState, ItemListCacheEntry>;
+
+function createEmptyListCacheEntry(): ItemListCacheEntry {
+  return {
+    items: [],
+    status: "loading",
+  };
+}
+
+function createInitialListCache(): ItemListCache {
+  return {
+    active: createEmptyListCacheEntry(),
+    deleted: createEmptyListCacheEntry(),
+  };
+}
+
 function appendUniqueItems(
   currentItems: VaultItem[],
   newItems: VaultItem[],
@@ -33,57 +56,74 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
   const loadMoreRef = useRef(false);
 
   const [listState, setListState] = useState<ItemState>("active");
-  const [items, setItems] = useState<VaultItem[]>([]);
-  const [nextCursor, setNextCursor] = useState<string>();
+  const [listCache, setListCache] = useState<ItemListCache>(
+    createInitialListCache,
+  );
 
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const [loadError, setLoadError] = useState<unknown>(null);
   const [paginationError, setPaginationError] = useState<unknown>(null);
 
   const [reloadVersion, setReloadVersion] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
+  const currentList = listCache[listState];
+  const items = currentList.items;
+  const nextCursor = currentList.nextCursor;
+  const isLoading = currentList.status === "loading";
+  const loadError = currentList.status === "error" ? currentList.error : null;
+  const hasLoaded = currentList.status === "loaded";
+
   useEffect(() => {
     let active = true;
 
-    void request<unknown>(itemCollectionPath(vaultId, listState))
-      .then(parseItemListResponse)
-      .then((response) => {
-        if (!active) {
-          return;
-        }
+    const loadState = (state: ItemState) => {
+      void request<unknown>(itemCollectionPath(vaultId, state))
+        .then(parseItemListResponse)
+        .then((response) => {
+          if (!active) {
+            return;
+          }
 
-        setItems(response.items);
-        setNextCursor(response.nextCursor);
-        setLoadError(null);
-        setPaginationError(null);
-        setIsLoading(false);
-      })
-      .catch((error: unknown) => {
-        if (!active) {
-          return;
-        }
+          setListCache((currentCache) => ({
+            ...currentCache,
+            [state]: {
+              items: response.items,
+              nextCursor: response.nextCursor,
+              status: "loaded",
+            },
+          }));
+          setPaginationError(null);
+        })
+        .catch((error: unknown) => {
+          if (!active) {
+            return;
+          }
 
-        setLoadError(error);
-        setIsLoading(false);
-      });
+          setListCache((currentCache) => ({
+            ...currentCache,
+            [state]: {
+              ...currentCache[state],
+              status: "error",
+              error,
+            },
+          }));
+        });
+    };
+
+    loadState("active");
+    loadState("deleted");
 
     return () => {
       active = false;
     };
-  }, [listState, reloadVersion, request, vaultId]);
+  }, [reloadVersion, request, vaultId]);
 
   const closeCreateModal = useCallback(() => {
     setIsCreateOpen(false);
   }, []);
 
   const refreshItems = () => {
-    setIsLoading(true);
-    setItems([]);
-    setNextCursor(undefined);
-    setLoadError(null);
     setPaginationError(null);
     setReloadVersion((current) => current + 1);
   };
@@ -94,10 +134,6 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
     }
 
     setListState(state);
-    setIsLoading(true);
-    setItems([]);
-    setNextCursor(undefined);
-    setLoadError(null);
     setPaginationError(null);
   };
 
@@ -117,11 +153,17 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
       const response = parseItemListResponse(rawResponse);
 
-      setItems((currentItems) =>
-        appendUniqueItems(currentItems, response.items),
-      );
-
-      setNextCursor(response.nextCursor);
+      setListCache((currentCache) => ({
+        ...currentCache,
+        [listState]: {
+          items: appendUniqueItems(
+            currentCache[listState].items,
+            response.items,
+          ),
+          nextCursor: response.nextCursor,
+          status: "loaded",
+        },
+      }));
     } catch (error) {
       setPaginationError(error);
     } finally {
@@ -132,16 +174,19 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
   const handleCreated = (item: VaultItem) => {
     setListState("active");
-
-    setItems((currentItems) => [
-      item,
-      ...currentItems.filter((currentItem) => currentItem.id !== item.id),
-    ]);
-
-    setNextCursor(undefined);
-    setLoadError(null);
+    setListCache((currentCache) => ({
+      ...currentCache,
+      active: {
+        items: [
+          item,
+          ...currentCache.active.items.filter(
+            (currentItem) => currentItem.id !== item.id,
+          ),
+        ],
+        status: "loaded",
+      },
+    }));
     setPaginationError(null);
-    setIsLoading(false);
   };
 
   return (
@@ -163,15 +208,6 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
               }}
             >
               Create Item
-            </button>
-
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={refreshItems}
-              disabled={isLoading}
-            >
-              Refresh
             </button>
           </div>
         </div>
@@ -204,11 +240,11 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
           <RequestErrorState error={loadError} onRetry={refreshItems} />
         ) : null}
 
-        {!loadError && isLoading ? (
+        {!loadError && isLoading && !hasLoaded ? (
           <LoadingState message="Loading items..." />
         ) : null}
 
-        {!loadError && !isLoading && items.length === 0 ? (
+        {!loadError && !isLoading && hasLoaded && items.length === 0 ? (
           <EmptyState>
             <p>
               {listState === "active"
@@ -218,7 +254,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
           </EmptyState>
         ) : null}
 
-        {!isLoading && items.length > 0 ? (
+        {hasLoaded && items.length > 0 ? (
           <ItemGroupedTables
             vaultId={vaultId}
             items={items}

@@ -79,6 +79,7 @@ export function AppShell() {
 
       <div className="security-notice" role="note">
         Use synthetic data only. Browser-side encryption is not implemented.
+        Revealed values are hidden after inactivity or when the tab is hidden.
       </div>
 
       <main className="application-content">

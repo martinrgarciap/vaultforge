@@ -83,15 +83,6 @@ export function VaultsPage() {
         {status === "authenticated" ? (
           <div className="page-heading-actions">
             <button
-              className="secondary-button"
-              type="button"
-              onClick={refreshVaults}
-              disabled={isLoading}
-            >
-              Refresh
-            </button>
-
-            <button
               className="primary-button"
               type="button"
               onClick={() => {

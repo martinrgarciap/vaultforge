@@ -12,6 +12,7 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue } from "../auth/types";
+import { PrivacyProvider } from "../privacy/PrivacyProvider";
 import { ItemDetailPage } from "./ItemDetailPage";
 
 const vault = {
@@ -80,14 +81,19 @@ function renderItemPage(
   render(
     <MemoryRouter initialEntries={[initialPath]}>
       <AuthContext.Provider value={authValue}>
-        <Routes>
-          <Route
-            path="/vaults/:vaultId/items/:itemId"
-            element={<ItemDetailPage />}
-          />
+        <PrivacyProvider>
+          <Routes>
+            <Route
+              path="/vaults/:vaultId/items/:itemId"
+              element={<ItemDetailPage />}
+            />
 
-          <Route path="/vaults/:vaultId" element={<h1>Vault destination</h1>} />
-        </Routes>
+            <Route
+              path="/vaults/:vaultId"
+              element={<h1>Vault destination</h1>}
+            />
+          </Routes>
+        </PrivacyProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
   );
