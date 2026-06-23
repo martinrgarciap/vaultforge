@@ -9,7 +9,10 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
 )
 
-const maxIfMatchHeaderBytes = 32
+const (
+	maxIfMatchHeaderBytes           = 32
+	softDeleteExpectedVersionHeader = "X-VaultForge-Expected-Version"
+)
 
 var (
 	errIfMatchRequired        = errors.New("If-Match header is required")
@@ -27,11 +30,33 @@ func itemETag(version int) string {
 }
 
 func expectedItemVersion(r *http.Request) (int, error) {
+	return expectedItemVersionFromHeader(r, "If-Match")
+}
+
+func expectedSoftDeleteItemVersion(r *http.Request) (int, error) {
 	if r == nil {
 		return 0, errIfMatchRequired
 	}
 
-	values := r.Header.Values("If-Match")
+	if len(r.Header.Values("If-Match")) > 0 {
+		return expectedItemVersion(r)
+	}
+
+	return expectedItemVersionFromHeader(
+		r,
+		softDeleteExpectedVersionHeader,
+	)
+}
+
+func expectedItemVersionFromHeader(
+	r *http.Request,
+	headerName string,
+) (int, error) {
+	if r == nil {
+		return 0, errIfMatchRequired
+	}
+
+	values := r.Header.Values(headerName)
 
 	if len(values) == 0 {
 		return 0, errIfMatchRequired

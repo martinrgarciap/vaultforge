@@ -148,7 +148,7 @@ export function ItemDetailPage() {
         {
           method: "DELETE",
           headers: {
-            "If-Match": itemVersionHeader(item.version),
+            "X-VaultForge-Expected-Version": itemVersionHeader(item.version),
           },
         },
       );

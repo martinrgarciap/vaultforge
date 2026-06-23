@@ -18,7 +18,7 @@ func (handler *Handler) SoftDelete(
 		return
 	}
 
-	expectedVersion, err := expectedItemVersion(r)
+	expectedVersion, err := expectedSoftDeleteItemVersion(r)
 	if err != nil {
 		handler.writeIfMatchError(w, r, err)
 		return

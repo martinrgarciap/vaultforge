@@ -305,7 +305,11 @@ describe("ItemDetailPage", () => {
 
     expect(deleteCall).toBeDefined();
 
-    expect(new Headers(deleteCall![1]?.headers).get("If-Match")).toBe('"2"');
+    const deleteHeaders = new Headers(deleteCall![1]?.headers);
+
+    expect(deleteHeaders.get("X-VaultForge-Expected-Version")).toBe('"2"');
+
+    expect(deleteHeaders.get("If-Match")).toBeNull();
   });
 
   it("restores a deleted item", async () => {

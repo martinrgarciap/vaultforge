@@ -2,6 +2,7 @@ package itemhandler
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -70,6 +71,38 @@ func TestExpectedItemVersionAcceptsStrongVersionETag(t *testing.T) {
 
 	if version != 12 {
 		t.Fatalf("expected version = %d, want 12", version)
+	}
+}
+
+func TestExpectedSoftDeleteItemVersionAcceptsCompatibilityHeader(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	request := httptest.NewRequest(
+		http.MethodDelete,
+		"/v1/vaults/vault-id/items/item-id",
+		nil,
+	)
+
+	request.Header.Set(
+		softDeleteExpectedVersionHeader,
+		`"12"`,
+	)
+
+	version, err := expectedSoftDeleteItemVersion(request)
+	if err != nil {
+		t.Fatalf(
+			"expectedSoftDeleteItemVersion() error = %v",
+			err,
+		)
+	}
+
+	if version != 12 {
+		t.Fatalf(
+			"expected version = %d, want 12",
+			version,
+		)
 	}
 }
 
