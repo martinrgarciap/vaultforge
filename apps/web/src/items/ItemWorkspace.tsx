@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "../auth/useAuth";
-import { ApiErrorMessage } from "../components/ApiErrorMessage";
+import {
+  EmptyState,
+  LoadingState,
+  RequestErrorState,
+} from "../components/PageState";
 import type { ItemState, VaultItem } from "./contracts";
 import { parseItemListResponse } from "./contracts";
 import { ItemCreateModal } from "./ItemCreateModal";
@@ -31,9 +35,13 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
   const [listState, setListState] = useState<ItemState>("active");
   const [items, setItems] = useState<VaultItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
+
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [listError, setListError] = useState<unknown>(null);
+
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [paginationError, setPaginationError] = useState<unknown>(null);
+
   const [reloadVersion, setReloadVersion] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
@@ -49,7 +57,8 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
         setItems(response.items);
         setNextCursor(response.nextCursor);
-        setListError(null);
+        setLoadError(null);
+        setPaginationError(null);
         setIsLoading(false);
       })
       .catch((error: unknown) => {
@@ -57,7 +66,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
           return;
         }
 
-        setListError(error);
+        setLoadError(error);
         setIsLoading(false);
       });
 
@@ -74,7 +83,8 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
     setIsLoading(true);
     setItems([]);
     setNextCursor(undefined);
-    setListError(null);
+    setLoadError(null);
+    setPaginationError(null);
     setReloadVersion((current) => current + 1);
   };
 
@@ -87,7 +97,8 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
     setIsLoading(true);
     setItems([]);
     setNextCursor(undefined);
-    setListError(null);
+    setLoadError(null);
+    setPaginationError(null);
   };
 
   const handleLoadMore = async () => {
@@ -97,7 +108,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
     loadMoreRef.current = true;
     setIsLoadingMore(true);
-    setListError(null);
+    setPaginationError(null);
 
     try {
       const rawResponse = await request<unknown>(
@@ -112,7 +123,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
       setNextCursor(response.nextCursor);
     } catch (error) {
-      setListError(error);
+      setPaginationError(error);
     } finally {
       loadMoreRef.current = false;
       setIsLoadingMore(false);
@@ -121,12 +132,15 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
   const handleCreated = (item: VaultItem) => {
     setListState("active");
+
     setItems((currentItems) => [
       item,
       ...currentItems.filter((currentItem) => currentItem.id !== item.id),
     ]);
+
     setNextCursor(undefined);
-    setListError(null);
+    setLoadError(null);
+    setPaginationError(null);
     setIsLoading(false);
   };
 
@@ -186,18 +200,22 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
           </button>
         </div>
 
-        {listError ? <ApiErrorMessage error={listError} /> : null}
+        {loadError && !isLoading ? (
+          <RequestErrorState error={loadError} onRetry={refreshItems} />
+        ) : null}
 
-        {isLoading ? <p className="loading-message">Loading items...</p> : null}
+        {!loadError && isLoading ? (
+          <LoadingState message="Loading items..." />
+        ) : null}
 
-        {!isLoading && items.length === 0 ? (
-          <div className="vault-empty">
+        {!loadError && !isLoading && items.length === 0 ? (
+          <EmptyState>
             <p>
               {listState === "active"
                 ? "No active items are stored in this vault."
                 : "No deleted items are waiting for recovery."}
             </p>
-          </div>
+          </EmptyState>
         ) : null}
 
         {!isLoading && items.length > 0 ? (
@@ -208,7 +226,17 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
           />
         ) : null}
 
-        {nextCursor ? (
+        {paginationError ? (
+          <RequestErrorState
+            error={paginationError}
+            onRetry={() => {
+              void handleLoadMore();
+            }}
+            retryLabel="Retry loading more"
+          />
+        ) : null}
+
+        {!paginationError && nextCursor ? (
           <div className="item-pagination">
             <button
               className="secondary-button"

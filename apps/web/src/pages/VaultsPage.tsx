@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
-import { ApiErrorMessage } from "../components/ApiErrorMessage";
+import {
+  EmptyState,
+  LoadingState,
+  RequestErrorState,
+} from "../components/PageState";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultListResponse } from "../vaults/contracts";
 import { VaultCreateModal } from "../vaults/VaultCreateModal";
@@ -101,17 +105,17 @@ export function VaultsPage() {
       </div>
 
       {status === "restoring" ? (
-        <p className="loading-message">Restoring your session...</p>
+        <LoadingState message="Restoring your session..." />
       ) : null}
 
       {status === "unauthenticated" ? (
-        <div className="vault-empty">
+        <EmptyState>
           <p>Sign in to view and manage your vaults.</p>
 
           <Link className="text-link" to="/login">
-            Go to login
+            Go to Login
           </Link>
-        </div>
+        </EmptyState>
       ) : null}
 
       {status === "authenticated" ? (
@@ -124,29 +128,19 @@ export function VaultsPage() {
           <p>Select a vault to view its items and settings.</p>
 
           {loadError ? (
-            <>
-              <ApiErrorMessage error={loadError} />
-
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={refreshVaults}
-              >
-                Try again
-              </button>
-            </>
+            <RequestErrorState error={loadError} onRetry={refreshVaults} />
           ) : null}
 
           {!loadError && isLoading ? (
-            <p className="loading-message">Loading vaults...</p>
+            <LoadingState message="Loading vaults..." />
           ) : null}
 
           {!loadError && !isLoading && vaults.length === 0 ? (
-            <div className="vault-empty">
+            <EmptyState>
               <p>You do not have any vaults yet.</p>
 
               <p>Create your first synthetic-data vault.</p>
-            </div>
+            </EmptyState>
           ) : null}
 
           {!loadError && !isLoading && vaults.length > 0 ? (
@@ -155,7 +149,7 @@ export function VaultsPage() {
         </section>
       ) : null}
 
-      {isCreateOpen ? (
+      {status === "authenticated" && isCreateOpen ? (
         <VaultCreateModal
           onClose={closeCreateModal}
           onCreated={handleCreated}

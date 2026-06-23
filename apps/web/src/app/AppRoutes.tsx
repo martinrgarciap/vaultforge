@@ -1,5 +1,10 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Route, Routes } from "react-router";
 
+import {
+  HomeRoute,
+  RequireAuthentication,
+  RequireGuest,
+} from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
 import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -13,22 +18,26 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/login" replace />} />
+        <Route index element={<HomeRoute />} />
 
-        <Route path="register" element={<RegisterPage />} />
+        <Route element={<RequireGuest />}>
+          <Route path="register" element={<RegisterPage />} />
 
-        <Route path="login" element={<LoginPage />} />
+          <Route path="login" element={<LoginPage />} />
+        </Route>
 
-        <Route path="vaults" element={<VaultsPage />} />
+        <Route element={<RequireAuthentication />}>
+          <Route path="vaults" element={<VaultsPage />} />
 
-        <Route path="vaults/:vaultId" element={<VaultDetailPage />} />
+          <Route path="vaults/:vaultId" element={<VaultDetailPage />} />
 
-        <Route
-          path="vaults/:vaultId/items/:itemId"
-          element={<ItemDetailPage />}
-        />
+          <Route
+            path="vaults/:vaultId/items/:itemId"
+            element={<ItemDetailPage />}
+          />
 
-        <Route path="sessions" element={<SessionsPage />} />
+          <Route path="sessions" element={<SessionsPage />} />
+        </Route>
 
         <Route path="*" element={<NotFoundPage />} />
       </Route>

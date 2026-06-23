@@ -6,6 +6,12 @@ import { useAuth } from "../auth/useAuth";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
 import { BackIconLink } from "../components/BackIconLink";
 import { ConfirmModal } from "../components/ConfirmModal";
+import {
+  EmptyState,
+  LoadingState,
+  RequestErrorState,
+  ResourceNotFoundState,
+} from "../components/PageState";
 import type { ItemState, VaultItem } from "../items/contracts";
 import { parseItemResponse } from "../items/contracts";
 import { itemDisplayName } from "../items/display";
@@ -227,6 +233,13 @@ export function ItemDetailPage() {
 
   const hasVersionConflict = isVersionConflict(actionError);
 
+  const missingResource =
+    loadError instanceof ApiError && loadError.status === 404
+      ? loadError.code === "vault_not_found"
+        ? "vault"
+        : "item"
+      : null;
+
   const vaultPath = vaultId
     ? `/vaults/${encodeURIComponent(vaultId)}`
     : "/vaults";
@@ -241,7 +254,7 @@ export function ItemDetailPage() {
 
           <h1>Loading Item</h1>
 
-          <p className="loading-message">Restoring your session...</p>
+          <LoadingState message="Restoring your session..." />
         </>
       ) : null}
 
@@ -251,13 +264,13 @@ export function ItemDetailPage() {
 
           <h1>Item Details</h1>
 
-          <div className="vault-empty">
+          <EmptyState>
             <p>Sign in to view this item.</p>
 
             <Link className="text-link" to="/login">
-              Go to login
+              Go to Login
             </Link>
-          </div>
+          </EmptyState>
         </>
       ) : null}
 
@@ -273,21 +286,36 @@ export function ItemDetailPage() {
         </>
       ) : null}
 
-      {status === "authenticated" && loadError ? (
+      {status === "authenticated" && missingResource ? (
+        <>
+          <p className="page-kicker">Item Details</p>
+
+          <ResourceNotFoundState
+            title={
+              missingResource === "vault" ? "Vault Not Found" : "Item Not Found"
+            }
+            message={
+              missingResource === "vault"
+                ? "The vault containing this item does not exist or is no longer available."
+                : "This vault item does not exist or is no longer available."
+            }
+            to={missingResource === "vault" ? "/vaults" : vaultPath}
+            linkLabel={
+              missingResource === "vault"
+                ? "Return to Vault List"
+                : "Return to Vault"
+            }
+          />
+        </>
+      ) : null}
+
+      {status === "authenticated" && loadError && !missingResource ? (
         <>
           <p className="page-kicker">Item Details</p>
 
           <h1>Item Details</h1>
 
-          <ApiErrorMessage error={loadError} />
-
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={reloadItem}
-          >
-            Try again
-          </button>
+          <RequestErrorState error={loadError} onRetry={reloadItem} />
         </>
       ) : null}
 
@@ -297,7 +325,7 @@ export function ItemDetailPage() {
 
           <h1>Loading Item</h1>
 
-          <p className="loading-message">Loading item...</p>
+          <LoadingState message="Loading item..." />
         </>
       ) : null}
 

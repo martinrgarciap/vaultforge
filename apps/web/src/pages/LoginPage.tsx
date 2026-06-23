@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
+import { readLoginNavigationState } from "../auth/navigation";
 import { useAuth } from "../auth/useAuth";
 import type { LoginFieldErrors } from "../auth/validation";
 import {
@@ -11,40 +12,17 @@ import {
 } from "../auth/validation";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
 
-interface RegistrationLocationState {
-  registrationComplete: true;
-  email: string;
-}
-
-function readRegistrationState(
-  value: unknown,
-): RegistrationLocationState | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("registrationComplete" in value) ||
-    value.registrationComplete !== true ||
-    !("email" in value) ||
-    typeof value.email !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    registrationComplete: true,
-    email: value.email,
-  };
-}
-
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const registrationState = readRegistrationState(location.state);
+
+  const navigationState = readLoginNavigationState(location.state);
+
   const { login, status } = useAuth();
 
   const submittingRef = useRef(false);
 
-  const [email, setEmail] = useState(registrationState?.email ?? "");
+  const [email, setEmail] = useState(navigationState.email ?? "");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [submissionError, setSubmissionError] = useState<unknown>(null);
@@ -76,7 +54,10 @@ export function LoginPage() {
       });
 
       setPassword("");
-      navigate("/vaults", { replace: true });
+
+      navigate(navigationState.returnTo, {
+        replace: true,
+      });
     } catch (error) {
       setSubmissionError(error);
     } finally {
@@ -89,13 +70,21 @@ export function LoginPage() {
 
   return (
     <section className="page-card auth-card">
-      <p className="page-kicker">Account access</p>
+      <p className="page-kicker">Account Access</p>
+
       <h1>Sign in</h1>
+
       <p className="auth-intro">Sign in to access your VaultForge workspace.</p>
 
-      {registrationState ? (
+      {navigationState.registrationComplete ? (
         <div className="form-success" role="status" aria-live="polite">
           Account created. Sign in to continue.
+        </div>
+      ) : null}
+
+      {navigationState.authenticationRequired ? (
+        <div className="form-notice" role="status" aria-live="polite">
+          Your session is not active. Sign in to continue.
         </div>
       ) : null}
 
@@ -120,10 +109,12 @@ export function LoginPage() {
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
+
               setFieldErrors((current) => ({
                 ...current,
                 email: undefined,
               }));
+
               setSubmissionError(null);
             }}
             autoComplete="email"
@@ -157,10 +148,12 @@ export function LoginPage() {
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);
+
               setFieldErrors((current) => ({
                 ...current,
                 password: undefined,
               }));
+
               setSubmissionError(null);
             }}
             autoComplete="current-password"

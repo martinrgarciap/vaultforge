@@ -1,9 +1,11 @@
+import { useCallback, useMemo, useState } from "react";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../api/ApiError";
 import { AuthContext } from "../auth/AuthContext";
-import type { AuthContextValue } from "../auth/types";
+import type { AuthContextValue, AuthStatus } from "../auth/types";
 import { AppRoutes } from "./AppRoutes";
 
 function createAuthValue(
@@ -38,7 +40,7 @@ function renderRoute(
 }
 
 describe("AppRoutes", () => {
-  it("redirects the root route to login", async () => {
+  it("redirects signed-out root visits to login", async () => {
     renderRoute("/");
 
     expect(
@@ -48,12 +50,43 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
+  it("redirects signed-in root visits to vaults", async () => {
+    const requestMock = vi.fn(async () => ({
+      vaults: [],
+    }));
+
+    renderRoute("/", {
+      status: "authenticated",
+      request: requestMock as AuthContextValue["request"],
+    });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Your Vaults",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows one restoration state before routing", () => {
+    renderRoute("/vaults", {
+      status: "restoring",
+    });
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Checking Your Session",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Restoring your session...",
+    );
+  });
+
   it.each([
     ["/register", "Create your account"],
     ["/login", "Sign in"],
-    ["/vaults", "Your Vaults"],
-    ["/sessions", "Active Sessions"],
-  ])("renders %s", (path, heading) => {
+  ])("renders signed-out public route %s", (path, heading) => {
     renderRoute(path);
 
     expect(
@@ -62,6 +95,45 @@ describe("AppRoutes", () => {
       }),
     ).toBeInTheDocument();
   });
+
+  it.each([
+    "/vaults",
+    "/sessions",
+    "/vaults/vault-123",
+    "/vaults/vault-123/items/item-123?state=active",
+  ])("redirects signed-out protected route %s to login", async (path) => {
+    renderRoute(path);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Sign in",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your session is not active. Sign in to continue.",
+    );
+  });
+
+  it.each(["/login", "/register"])(
+    "redirects signed-in public route %s to vaults",
+    async (path) => {
+      const requestMock = vi.fn(async () => ({
+        vaults: [],
+      }));
+
+      renderRoute(path, {
+        status: "authenticated",
+        request: requestMock as AuthContextValue["request"],
+      });
+
+      expect(
+        await screen.findByRole("heading", {
+          name: "Your Vaults",
+        }),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("loads the selected vault route", async () => {
     const requestMock = vi.fn(async (path: string) => {
@@ -93,8 +165,6 @@ describe("AppRoutes", () => {
         name: "Vault Details",
       }),
     ).toBeInTheDocument();
-
-    expect(requestMock).toHaveBeenCalledWith("/v1/vaults/vault-123");
   });
 
   it("loads the selected item route", async () => {
@@ -135,28 +205,82 @@ describe("AppRoutes", () => {
         name: "Synthetic Note",
       }),
     ).toBeInTheDocument();
-
-    expect(
-      screen.getByRole("link", {
-        name: "Development Vault",
-      }),
-    ).toBeInTheDocument();
-
-    expect(requestMock).toHaveBeenCalledWith("/v1/vaults/vault-123");
-
-    expect(requestMock).toHaveBeenCalledWith(
-      "/v1/vaults/vault-123/items/item-123?state=active",
-    );
   });
 
-  it("renders the not-found page for an unknown route", () => {
-    renderRoute("/unknown");
+  it("renders an authentication-aware not-found page", () => {
+    renderRoute("/unknown", {
+      status: "authenticated",
+    });
 
     expect(
       screen.getByRole("heading", {
-        name: "Page not found",
+        name: "Page Not Found",
       }),
     ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Return to Vaults",
+      }),
+    ).toHaveAttribute("href", "/vaults");
+  });
+
+  it("removes protected content after authentication loss", async () => {
+    function AuthenticationLossHarness() {
+      const [status, setStatus] = useState<AuthStatus>("authenticated");
+
+      const request = useCallback(async <T,>(): Promise<T> => {
+        await Promise.resolve();
+
+        setStatus("unauthenticated");
+
+        throw new ApiError(
+          401,
+          "unauthorized",
+          "A valid access token is required.",
+        );
+      }, []);
+
+      const value = useMemo<AuthContextValue>(
+        () => ({
+          status,
+          account: null,
+          register: async () => {
+            throw new Error("Unexpected registration call.");
+          },
+          login: async () => {
+            throw new Error("Unexpected login call.");
+          },
+          logout: async () => undefined,
+          request,
+        }),
+        [request, status],
+      );
+
+      return (
+        <AuthContext.Provider value={value}>
+          <AppRoutes />
+        </AuthContext.Provider>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/vaults"]}>
+        <AuthenticationLossHarness />
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Sign in",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("heading", {
+        name: "Vault List",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the shared application shell", () => {

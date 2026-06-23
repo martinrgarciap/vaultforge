@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
+import { ApiError } from "../api/ApiError";
 import { useAuth } from "../auth/useAuth";
-import { ApiErrorMessage } from "../components/ApiErrorMessage";
 import { ConfirmModal } from "../components/ConfirmModal";
+import {
+  EmptyState,
+  LoadingState,
+  RequestErrorState,
+} from "../components/PageState";
 import type { SessionSummary } from "../sessions/contracts";
 import { parseSessionListResponse } from "../sessions/contracts";
 import { sessionClientLabel } from "../sessions/display";
@@ -24,6 +29,14 @@ type SessionConfirmation =
     }
   | null;
 
+function isSessionNotFound(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    error.code === "session_not_found"
+  );
+}
+
 export function SessionsPage() {
   const navigate = useNavigate();
   const { logout, request, status } = useAuth();
@@ -36,6 +49,7 @@ export function SessionsPage() {
 
   const [confirmation, setConfirmation] = useState<SessionConfirmation>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [actionNotice, setActionNotice] = useState<string>();
   const [isActioning, setIsActioning] = useState(false);
 
   useEffect(() => {
@@ -78,6 +92,7 @@ export function SessionsPage() {
   const refreshSessions = () => {
     setIsLoading(true);
     setLoadError(null);
+    setActionNotice(undefined);
     setReloadVersion((current) => current + 1);
   };
 
@@ -104,6 +119,7 @@ export function SessionsPage() {
     }
 
     const session = confirmation.session;
+    const clientLabel = sessionClientLabel(session.userAgent);
 
     try {
       await request<void>(sessionResourcePath(session.id), {
@@ -117,7 +133,24 @@ export function SessionsPage() {
       );
 
       setConfirmation(null);
+      setActionNotice(`${clientLabel} was revoked.`);
     } catch (error) {
+      if (isSessionNotFound(error)) {
+        setSessions((currentSessions) =>
+          currentSessions.filter(
+            (currentSession) => currentSession.id !== session.id,
+          ),
+        );
+
+        setConfirmation(null);
+
+        setActionNotice(
+          `${clientLabel} was already inactive and was removed from the list.`,
+        );
+
+        return;
+      }
+
       setActionError(error);
     } finally {
       finishAction();
@@ -200,45 +233,41 @@ export function SessionsPage() {
         account.
       </p>
 
-      {status === "restoring" ? (
-        <p className="loading-message">Restoring your session...</p>
-      ) : null}
-
-      {status === "unauthenticated" ? (
-        <div className="vault-empty">
-          <p>Sign in to review your active sessions.</p>
-
-          <Link className="text-link" to="/login">
-            Go to login
-          </Link>
+      {actionNotice ? (
+        <div className="form-success" role="status" aria-live="polite">
+          {actionNotice}
         </div>
       ) : null}
 
-      {status === "authenticated" && loadError ? (
-        <>
-          <ApiErrorMessage error={loadError} />
+      {status === "restoring" ? (
+        <LoadingState message="Restoring your session..." />
+      ) : null}
 
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={refreshSessions}
-          >
-            Try again
-          </button>
-        </>
+      {status === "unauthenticated" ? (
+        <EmptyState>
+          <p>Sign in to review your active sessions.</p>
+
+          <Link className="text-link" to="/login">
+            Go to Login
+          </Link>
+        </EmptyState>
+      ) : null}
+
+      {status === "authenticated" && loadError ? (
+        <RequestErrorState error={loadError} onRetry={refreshSessions} />
       ) : null}
 
       {status === "authenticated" && !loadError && isLoading ? (
-        <p className="loading-message">Loading sessions...</p>
+        <LoadingState message="Loading sessions..." />
       ) : null}
 
       {status === "authenticated" &&
       !loadError &&
       !isLoading &&
       sessions.length === 0 ? (
-        <div className="vault-empty">
+        <EmptyState>
           <p>No active sessions were returned for this account.</p>
-        </div>
+        </EmptyState>
       ) : null}
 
       {status === "authenticated" &&
@@ -265,7 +294,7 @@ export function SessionsPage() {
         />
       ) : null}
 
-      {confirmation?.kind === "revoke" ? (
+      {status === "authenticated" && confirmation?.kind === "revoke" ? (
         <ConfirmModal
           title="Revoke Session?"
           eyebrow="Account Security"
@@ -292,7 +321,7 @@ export function SessionsPage() {
         </ConfirmModal>
       ) : null}
 
-      {confirmation?.kind === "current" ? (
+      {status === "authenticated" && confirmation?.kind === "current" ? (
         <ConfirmModal
           title="Log Out This Device?"
           eyebrow="Account Security"
@@ -317,7 +346,7 @@ export function SessionsPage() {
         </ConfirmModal>
       ) : null}
 
-      {confirmation?.kind === "all" ? (
+      {status === "authenticated" && confirmation?.kind === "all" ? (
         <ConfirmModal
           title="Log Out All Sessions?"
           eyebrow="Account Security"

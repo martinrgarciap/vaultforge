@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { ApiError } from "../api/ApiError";
 import { useAuth } from "../auth/useAuth";
-import { ApiErrorMessage } from "../components/ApiErrorMessage";
 import { BackIconLink } from "../components/BackIconLink";
 import { ConfirmModal } from "../components/ConfirmModal";
+import {
+  EmptyState,
+  LoadingState,
+  RequestErrorState,
+  ResourceNotFoundState,
+} from "../components/PageState";
 import { ItemWorkspace } from "../items/ItemWorkspace";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
@@ -36,6 +42,11 @@ export function VaultDetailPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const vaultNotFound =
+    loadError instanceof ApiError &&
+    loadError.status === 404 &&
+    loadError.code === "vault_not_found";
 
   useEffect(() => {
     if (status !== "authenticated" || !vaultId) {
@@ -106,6 +117,14 @@ export function VaultDetailPage() {
         replace: true,
       });
     } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        navigate("/vaults", {
+          replace: true,
+        });
+
+        return;
+      }
+
       setDeleteError(error);
       deletingRef.current = false;
       setIsDeleting(false);
@@ -122,7 +141,7 @@ export function VaultDetailPage() {
 
           <h1>Vault Details</h1>
 
-          <p className="loading-message">Restoring your session...</p>
+          <LoadingState message="Restoring your session..." />
         </>
       ) : null}
 
@@ -132,13 +151,13 @@ export function VaultDetailPage() {
 
           <h1>Vault Details</h1>
 
-          <div className="vault-empty">
+          <EmptyState>
             <p>Sign in to view this vault.</p>
 
             <Link className="text-link" to="/login">
-              Go to login
+              Go to Login
             </Link>
-          </div>
+          </EmptyState>
         </>
       ) : null}
 
@@ -154,21 +173,26 @@ export function VaultDetailPage() {
         </>
       ) : null}
 
-      {status === "authenticated" && loadError ? (
+      {status === "authenticated" && vaultNotFound ? (
+        <>
+          <p className="page-kicker">Vault Workspace</p>
+
+          <ResourceNotFoundState
+            title="Vault Not Found"
+            message="This vault does not exist or is no longer available."
+            to="/vaults"
+            linkLabel="Return to Vault List"
+          />
+        </>
+      ) : null}
+
+      {status === "authenticated" && loadError && !vaultNotFound ? (
         <>
           <p className="page-kicker">Vault Workspace</p>
 
           <h1>Vault Details</h1>
 
-          <ApiErrorMessage error={loadError} />
-
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={reloadVault}
-          >
-            Try again
-          </button>
+          <RequestErrorState error={loadError} onRetry={reloadVault} />
         </>
       ) : null}
 
@@ -178,7 +202,7 @@ export function VaultDetailPage() {
 
           <h1>Vault Details</h1>
 
-          <p className="loading-message">Loading vault...</p>
+          <LoadingState message="Loading vault..." />
         </>
       ) : null}
 

@@ -494,4 +494,41 @@ describe("ItemDetailPage", () => {
       requestMock.mock.calls.filter(([, options]) => options?.method === "PUT"),
     ).toHaveLength(1);
   });
+
+  it("shows an item-not-found state without offering a retry", async () => {
+    const requestMock = vi.fn(async (path: string) => {
+      if (path === "/v1/vaults/vault-123") {
+        return {
+          vault,
+        };
+      }
+
+      throw new ApiError(
+        404,
+        "item_not_found",
+        "The vault item was not found.",
+        "request-item-missing",
+      );
+    });
+
+    renderItemPage(requestMock);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Item Not Found",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Return to Vault",
+      }),
+    ).toHaveAttribute("href", "/vaults/vault-123");
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Try again",
+      }),
+    ).not.toBeInTheDocument();
+  });
 });

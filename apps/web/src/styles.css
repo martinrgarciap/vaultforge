@@ -1538,3 +1538,22 @@ a {
     width: 100%;
   }
 }
+
+.form-notice {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  color: #294e88;
+  background: #edf3fc;
+  border: 1px solid #a9bfdf;
+  border-radius: 0.5rem;
+  font-weight: 650;
+}
+
+.request-error-state {
+  margin-top: 1rem;
+}
+
+.state-actions {
+  display: flex;
+  margin-top: 0.75rem;
+}

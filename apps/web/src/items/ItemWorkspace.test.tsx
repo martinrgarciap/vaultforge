@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue } from "../auth/types";
@@ -394,5 +395,42 @@ describe("ItemWorkspace", () => {
         name: "Open Second Login",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("does not show an empty state when initial loading fails", async () => {
+    const requestMock = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(
+          503,
+          "item_unavailable",
+          "Vault item operations are temporarily unavailable.",
+        ),
+      )
+      .mockResolvedValueOnce({
+        items: [],
+      });
+
+    renderWorkspace(requestMock);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Vault item operations are temporarily unavailable.",
+    );
+
+    expect(
+      screen.queryByText("No active items are stored in this vault."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Try again",
+      }),
+    );
+
+    expect(
+      await screen.findByText("No active items are stored in this vault."),
+    ).toBeInTheDocument();
+
+    expect(requestMock).toHaveBeenCalledTimes(2);
   });
 });

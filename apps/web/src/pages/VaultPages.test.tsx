@@ -417,4 +417,35 @@ describe("VaultDetailPage", () => {
       method: "DELETE",
     });
   });
+
+  it("shows a non-retryable vault-not-found state", async () => {
+    const requestMock = vi.fn(async () => {
+      throw new ApiError(
+        404,
+        "vault_not_found",
+        "The vault was not found.",
+        "request-vault-missing",
+      );
+    });
+
+    renderVaultDetail(requestMock);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Vault Not Found",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Return to Vault List",
+      }),
+    ).toHaveAttribute("href", "/vaults");
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Try again",
+      }),
+    ).not.toBeInTheDocument();
+  });
 });
