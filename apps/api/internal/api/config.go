@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
@@ -24,6 +25,7 @@ type Config struct {
 	DatabaseURL    string
 	HTTP           HTTPConfig
 	Redis          redisclient.Config
+	HashService    hashclient.Config
 	RateLimits     RateLimitConfig
 	Tokens         session.TokenConfig
 	SessionCookies sessioncookie.Config
@@ -62,6 +64,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	hashServiceConfig, err := loadHashServiceConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	rateLimitConfig, err := loadRateLimitConfig(cfg.Env)
 	if err != nil {
 		return Config{}, err
@@ -74,6 +81,7 @@ func LoadConfig() (Config, error) {
 
 	cfg.HTTP = httpConfig
 	cfg.Redis = redisConfig
+	cfg.HashService = hashServiceConfig
 	cfg.RateLimits = rateLimitConfig
 	cfg.Tokens = tokenConfig
 	cfg.SessionCookies = sessioncookie.NewConfig(
@@ -125,6 +133,35 @@ func loadRedisConfig() (redisclient.Config, error) {
 	)
 	if err != nil {
 		return redisclient.Config{}, err
+	}
+
+	return config, nil
+}
+
+func loadHashServiceConfig() (hashclient.Config, error) {
+	dialTimeout, err := loadDuration(
+		"HASH_SERVICE_DIAL_TIMEOUT",
+		hashclient.DefaultDialTimeout,
+	)
+	if err != nil {
+		return hashclient.Config{}, err
+	}
+
+	requestTimeout, err := loadDuration(
+		"HASH_SERVICE_TIMEOUT",
+		hashclient.DefaultRequestTimeout,
+	)
+	if err != nil {
+		return hashclient.Config{}, err
+	}
+
+	config, err := hashclient.NewConfig(
+		getEnv("HASH_SERVICE_ADDR", hashclient.DefaultAddress),
+		dialTimeout,
+		requestTimeout,
+	)
+	if err != nil {
+		return hashclient.Config{}, err
 	}
 
 	return config, nil

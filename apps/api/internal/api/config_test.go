@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
 
@@ -79,6 +80,30 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 			"Redis pool timeout = %v, want %v",
 			cfg.Redis.PoolTimeout(),
 			2*time.Second,
+		)
+	}
+
+	if cfg.HashService.Address() != hashclient.DefaultAddress {
+		t.Errorf(
+			"hash service address = %q, want %q",
+			cfg.HashService.Address(),
+			hashclient.DefaultAddress,
+		)
+	}
+
+	if cfg.HashService.DialTimeout() != hashclient.DefaultDialTimeout {
+		t.Errorf(
+			"hash service dial timeout = %v, want %v",
+			cfg.HashService.DialTimeout(),
+			hashclient.DefaultDialTimeout,
+		)
+	}
+
+	if cfg.HashService.RequestTimeout() != hashclient.DefaultRequestTimeout {
+		t.Errorf(
+			"hash service request timeout = %v, want %v",
+			cfg.HashService.RequestTimeout(),
+			hashclient.DefaultRequestTimeout,
 		)
 	}
 
@@ -158,6 +183,9 @@ func TestLoadConfigUsesEnvironmentVariables(
 	t.Setenv("REDIS_READ_TIMEOUT", "1500ms")
 	t.Setenv("REDIS_WRITE_TIMEOUT", "1250ms")
 	t.Setenv("REDIS_POOL_TIMEOUT", "4s")
+	t.Setenv("HASH_SERVICE_ADDR", "127.0.0.1:50052")
+	t.Setenv("HASH_SERVICE_DIAL_TIMEOUT", "4s")
+	t.Setenv("HASH_SERVICE_TIMEOUT", "2500ms")
 	t.Setenv(
 		"ACCESS_TOKEN_ISSUER",
 		"custom-issuer",
@@ -238,6 +266,27 @@ func TestLoadConfigUsesEnvironmentVariables(
 		)
 	}
 
+	if cfg.HashService.Address() != "127.0.0.1:50052" {
+		t.Errorf(
+			"hash service address = %q",
+			cfg.HashService.Address(),
+		)
+	}
+
+	if cfg.HashService.DialTimeout() != 4*time.Second {
+		t.Errorf(
+			"hash service dial timeout = %v",
+			cfg.HashService.DialTimeout(),
+		)
+	}
+
+	if cfg.HashService.RequestTimeout() != 2500*time.Millisecond {
+		t.Errorf(
+			"hash service request timeout = %v",
+			cfg.HashService.RequestTimeout(),
+		)
+	}
+
 	if cfg.Tokens.Issuer() !=
 		"custom-issuer" {
 		t.Errorf(
@@ -290,6 +339,61 @@ func TestLoadConfigUsesEnvironmentVariables(
 			cfg.Tokens.Lifetimes().
 				ClockLeeway(),
 		)
+	}
+}
+
+func TestLoadConfigRejectsInvalidHashServiceConfig(t *testing.T) {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{
+			name:  "malformed address",
+			key:   "HASH_SERVICE_ADDR",
+			value: "http://127.0.0.1:50051",
+		},
+		{
+			name:  "address without port",
+			key:   "HASH_SERVICE_ADDR",
+			value: "127.0.0.1",
+		},
+		{
+			name:  "malformed dial timeout",
+			key:   "HASH_SERVICE_DIAL_TIMEOUT",
+			value: "invalid",
+		},
+		{
+			name:  "zero dial timeout",
+			key:   "HASH_SERVICE_DIAL_TIMEOUT",
+			value: "0s",
+		},
+		{
+			name:  "malformed request timeout",
+			key:   "HASH_SERVICE_TIMEOUT",
+			value: "invalid",
+		},
+		{
+			name:  "zero request timeout",
+			key:   "HASH_SERVICE_TIMEOUT",
+			value: "0s",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			setValidConfigEnvironment(t)
+
+			t.Setenv("DATABASE_URL", testDatabaseURL)
+			t.Setenv(testCase.key, testCase.value)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal(
+					"expected invalid hash service config to return an error",
+				)
+			}
+		})
 	}
 }
 
@@ -612,6 +716,10 @@ func setValidConfigEnvironment(t *testing.T) {
 	t.Setenv("REDIS_READ_TIMEOUT", "")
 	t.Setenv("REDIS_WRITE_TIMEOUT", "")
 	t.Setenv("REDIS_POOL_TIMEOUT", "")
+
+	t.Setenv("HASH_SERVICE_ADDR", "")
+	t.Setenv("HASH_SERVICE_DIAL_TIMEOUT", "")
+	t.Setenv("HASH_SERVICE_TIMEOUT", "")
 
 	t.Setenv("ACCESS_TOKEN_ISSUER", "")
 	t.Setenv("ACCESS_TOKEN_AUDIENCE", "")

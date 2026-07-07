@@ -26,9 +26,7 @@ This service does not:
 - Receive vault master passphrases
 - Derive vault encryption keys
 - Encrypt or decrypt vault items
-- Replace the Go API password hasher yet
-
-Go API integration belongs to Step 15.
+The Go API now uses this service through its password hasher boundary. Registration and login depend on the Rust gRPC service being available, and Go readiness checks include the hash service health endpoint.
 
 ## gRPC contract
 

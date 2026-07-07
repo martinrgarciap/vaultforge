@@ -674,7 +674,7 @@ Both workflows may use Argon2id, but for different purposes, with separate param
 ```text
 apps/api                Go HTTP API
 apps/web                React and TypeScript browser client
-services/hash-service   Planned Rust gRPC hashing service
+services/hash-service   Rust gRPC Argon2id account-password hashing service
 packages/proto          Planned shared Protocol Buffer contracts
 deployments             Compose, local OpenTelemetry, and later Kubernetes configuration
 docs                    Architecture, threat model, testing policy, and runbooks

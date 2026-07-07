@@ -152,6 +152,7 @@ jobs:
     env:
       E2E_DATABASE_URL: postgres://vaultforge:test@127.0.0.1:5432/vaultforge_e2e?sslmode=disable
       E2E_REDIS_URL: redis://127.0.0.1:6379/2
+      E2E_HASH_SERVICE_ADDR: 127.0.0.1:50052
 
     steps:
       - name: Check out repository
@@ -169,6 +170,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Install web dependencies
         working-directory: apps/web
@@ -193,8 +204,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run real-stack browser test
-        working-directory: apps/web
-        run: npm run test:e2e
+        run: ./scripts/test-e2e.sh
 
   rust:
     name: Rust checks

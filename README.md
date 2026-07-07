@@ -19,7 +19,7 @@ graph LR
     A --> R["Redis"]
     B -. "future browser encryption" .-> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
-    A -. "Step 15 integration planned" .-> H["Rust gRPC Hashing Service"]
+    A --> H["Rust gRPC Hashing Service"]
     A --> O["OpenTelemetry"]
 ```
 
@@ -53,9 +53,7 @@ Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis thr
 
 The Go API receives the account password during registration and login. Password operations pass through a replaceable `PasswordHasher` interface.
 
-The current development implementation uses a local Argon2id adapter. The Rust hash service now exists as an isolated Step 14 service under `services/hash-service`. It exposes `HashPassword` and `VerifyPassword` over gRPC using the shared protobuf contract in `packages/proto`.
-
-The Go API still uses its existing password hasher until Step 15 wires the API to the Rust service.
+The Go API now uses the Rust gRPC hash service for account-password hashing and verification. The service lives under `services/hash-service` and exposes `HashPassword` and `VerifyPassword` through the shared protobuf contract in `packages/proto`.
 
 Successful login creates a server-side session family and returns:
 

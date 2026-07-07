@@ -10,6 +10,8 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/auth"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashclient"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashpb"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
@@ -183,7 +185,60 @@ func main() {
 	userStore := store.NewUserStore(
 		databasePool,
 	)
-	passwordHasher := auth.NewArgon2idHasher()
+
+	hashServiceConnection, err := hashclient.Dial(
+		context.Background(),
+		cfg.HashService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"hash service initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	defer func() {
+		if err := hashServiceConnection.Close(); err != nil {
+			logger.Warnw("hash service connection close failed")
+		}
+	}()
+
+	logger.Infow(
+		"hash service connection established",
+	)
+
+	hashServiceClient := hashpb.NewHashServiceClient(
+		hashServiceConnection,
+	)
+
+	passwordHasher, err := hashclient.New(
+		hashServiceClient,
+		cfg.HashService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"password hasher initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	hashServicePinger, err := hashclient.NewHealthPinger(
+		hashServiceConnection,
+		cfg.HashService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"hash service readiness initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
 	authService := auth.NewService(
 		userStore,
 		passwordHasher,
@@ -209,6 +264,7 @@ func main() {
 	readinessPinger := health.NewReadinessPinger(
 		databasePool,
 		redisClient,
+		hashServicePinger,
 	)
 
 	app := api.NewApplication(

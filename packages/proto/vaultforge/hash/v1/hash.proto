@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package vaultforge.hash.v1;
 
+option go_package = "github.com/martinrgarciap/vaultforge/apps/api/internal/hashpb;hashpb";
+
 // HashService hashes and verifies ACCOUNT passwords using Argon2id.
 //
 // Scope: account authentication only. This service does NOT handle vault-item

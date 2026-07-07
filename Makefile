@@ -17,6 +17,8 @@ JAEGER_SERVICE := jaeger
 
 E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/vaultforge_e2e?sslmode=disable
 E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
+HASH_SERVICE_BIND_ADDR ?= 127.0.0.1:50051
+E2E_HASH_SERVICE_ADDR ?= 127.0.0.1:50052
 API_BUILD_PACKAGE := github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo
 API_BUILD_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo development)
 API_BUILD_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
@@ -31,6 +33,7 @@ API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
 	dev \
 	dev-api \
 	dev-web \
+	dev-hash-service \
 	test \
 	test-api \
 	test-web \
@@ -98,6 +101,11 @@ dev-api:
 dev-web:
 	cd $(WEB_DIR) && npm run dev
 
+dev-hash-service:
+	cd $(HASH_SERVICE_DIR) && \
+		HASH_SERVICE_BIND_ADDR="$(HASH_SERVICE_BIND_ADDR)" \
+		cargo run
+
 test: test-api test-web
 
 test-api:
@@ -111,10 +119,12 @@ test-web:
 	cd $(WEB_DIR) && npm run test
 
 test-e2e: db-reset-e2e
-	cd $(WEB_DIR) && \
-		E2E_DATABASE_URL="$(E2E_DATABASE_URL)" \
-		E2E_REDIS_URL="$(E2E_REDIS_URL)" \
-		npm run test:e2e
+	HASH_SERVICE_DIR="$(HASH_SERVICE_DIR)" \
+	WEB_DIR="$(WEB_DIR)" \
+	E2E_DATABASE_URL="$(E2E_DATABASE_URL)" \
+	E2E_REDIS_URL="$(E2E_REDIS_URL)" \
+	E2E_HASH_SERVICE_ADDR="$(E2E_HASH_SERVICE_ADDR)" \
+	./scripts/test-e2e.sh
 
 lint: lint-api lint-web
 
