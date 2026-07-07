@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package vaultforge.hash.v1;
+
+// HashService hashes and verifies ACCOUNT passwords using Argon2id.
+//
+// Scope: account authentication only. This service does NOT handle vault-item
+// encryption, key derivation for vault data, or anything client-side. Those
+// belong to separate (later) components. See SECURITY docs.
+service HashService {
+  // HashPassword hashes a plaintext account password with Argon2id and returns
+  // a PHC-encoded string (algorithm, params, salt, and hash all embedded).
+  rpc HashPassword(HashPasswordRequest) returns (HashPasswordResponse);
+
+  // VerifyPassword checks a plaintext password against a stored PHC hash.
+  // A wrong password is a SUCCESSFUL response with verified=false, not an error.
+  rpc VerifyPassword(VerifyPasswordRequest) returns (VerifyPasswordResponse);
+}
+
+// --- HashPassword ---
+
+message HashPasswordRequest {
+  // The plaintext account password to hash. Never logged or echoed.
+  string password = 1;
+}
+
+message HashPasswordResponse {
+  // PHC-encoded Argon2id string, e.g. "$argon2id$v=19$m=...$<salt>$<hash>".
+  // Safe to store; contains the salt and parameters needed to verify later.
+  string phc_hash = 1;
+}
+
+// --- VerifyPassword ---
+
+message VerifyPasswordRequest {
+  // The plaintext password to check. Never logged or echoed.
+  string password = 1;
+
+  // The stored PHC hash to verify against.
+  string phc_hash = 2;
+}
+
+message VerifyPasswordResponse {
+  // True if the password matches the hash. A false value is a NORMAL,
+  // successful outcome (wrong password), NOT an error condition.
+  bool verified = 1;
+}

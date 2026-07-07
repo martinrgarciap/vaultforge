@@ -196,6 +196,40 @@ jobs:
         working-directory: apps/web
         run: npm run test:e2e
 
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/hash-service
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        run: cargo build
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

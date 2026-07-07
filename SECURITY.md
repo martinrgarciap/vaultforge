@@ -28,6 +28,10 @@ The Go API receives the account password during registration and login and passe
 
 The current development adapter uses Argon2id with a fresh random salt for every stored password hash.
 
+The Rust gRPC hash service handles account password hashing and verification only. It must not receive vault master passphrases, vault encryption keys, decrypted vault item data, access tokens, refresh tokens, cookies, database URLs, signing keys, or other secrets.
+
+Wrong-password verification returns a normal negative result. Malformed PHC strings and invalid inputs return safe gRPC errors that do not include secret-bearing values.
+
 PostgreSQL stores only:
 
 - The encoded password hash

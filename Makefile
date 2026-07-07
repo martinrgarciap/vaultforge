@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 API_DIR := apps/api
 WEB_DIR := apps/web
+HASH_SERVICE_DIR := services/hash-service
 COMPOSE_FILE := deployments/compose.yaml
 MIGRATIONS_DIR := apps/api/migrations
 
@@ -48,6 +49,12 @@ API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
 	typecheck-web \
 	build-api \
 	build-web \
+	format-rust \
+	format-check-rust \
+	lint-rust \
+	test-rust \
+	build-rust \
+	verify-rust \
 	mod-verify \
 	verify \
 	verify-api \
@@ -150,10 +157,27 @@ build-api:
 build-web:
 	cd $(WEB_DIR) && npm run build
 
+format-rust:
+	cd $(HASH_SERVICE_DIR) && cargo fmt
+
+format-check-rust:
+	cd $(HASH_SERVICE_DIR) && cargo fmt --check
+
+lint-rust:
+	cd $(HASH_SERVICE_DIR) && cargo clippy -- -D warnings
+
+test-rust:
+	cd $(HASH_SERVICE_DIR) && cargo test
+
+build-rust:
+	cd $(HASH_SERVICE_DIR) && cargo build
+
+verify-rust: format-check-rust lint-rust test-rust build-rust
+
 mod-verify:
 	cd $(API_DIR) && go mod verify
 
-verify: verify-api verify-web verify-e2e
+verify: verify-api verify-web verify-rust verify-e2e
 
 verify-api: format-check-api mod-verify lint-api test-api build-api
 

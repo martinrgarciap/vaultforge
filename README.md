@@ -19,7 +19,7 @@ graph LR
     A --> R["Redis"]
     B -. "future browser encryption" .-> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
-    A -. "planned" .-> H["Rust gRPC Hashing Service"]
+    A -. "Step 15 integration planned" .-> H["Rust gRPC Hashing Service"]
     A --> O["OpenTelemetry"]
 ```
 
@@ -47,13 +47,15 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
 The Go API receives the account password during registration and login. Password operations pass through a replaceable `PasswordHasher` interface.
 
-The current development implementation uses a local Argon2id adapter. A later Rust gRPC service can replace it without changing the HTTP contracts or authentication service.
+The current development implementation uses a local Argon2id adapter. The Rust hash service now exists as an isolated Step 14 service under `services/hash-service`. It exposes `HashPassword` and `VerifyPassword` over gRPC using the shared protobuf contract in `packages/proto`.
+
+The Go API still uses its existing password hasher until Step 15 wires the API to the Rust service.
 
 Successful login creates a server-side session family and returns:
 
@@ -103,6 +105,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Distributed Redis limits for registration, login, refresh, and authenticated mutations
 - Failed-login counters and temporary lockouts keyed through HMAC-protected identities
 - PostgreSQL and Redis startup checks and composite readiness
+- Rust gRPC Argon2id hash service with PHC hash generation, password verification, health checks, reflection, safe validation, and Rust tests
 - Defined PostgreSQL and Redis outage behavior with safe `503` responses
 - Configurable HTTP, shutdown, PostgreSQL, and Redis timeouts
 - Context cancellation through handlers, services, and repositories
@@ -148,9 +151,10 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Frontend testing:** Vitest, React Testing Library, Playwright, axe
 - **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
+- **Rust:** Tonic gRPC Argon2id hashing service
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
-- **Planned:** Reduced frontend finishing work, Rust learning, Rust gRPC password hashing, Rust WebAssembly browser encryption, ciphertext-only persistence, Docker application images, Kubernetes, deployment and release work
+- **Planned:** Rust WebAssembly, browser-side encryption, Kubernetes, optional RabbitMQ workflows
 
 ## Repository structure
 

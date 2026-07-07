@@ -40,3 +40,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+
+# Rust build artifacts
+target/
+services/hash-service/target/
