@@ -1,0 +1,14 @@
+[package]
+name = "crypto-wasm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+aes-gcm = "0.10.3"
+argon2 = { version = "0.5", features = ["alloc"] }
+getrandom = { version = "0.2", features = ["js"] }
