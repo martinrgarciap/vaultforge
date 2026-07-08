@@ -8,8 +8,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::crypto::{
-    decrypt_impl, derive_key_impl, encrypt_impl, generate_key_impl, unwrap_key_impl,
-    wrap_key_impl,
+    decrypt_impl, derive_key_impl, encrypt_impl, generate_key_impl, unwrap_key_impl, wrap_key_impl,
 };
 use crate::error::CryptoError;
 

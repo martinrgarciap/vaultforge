@@ -44,3 +44,4 @@ test-results/
 # Rust build artifacts
 target/
 services/hash-service/target/
+packages/crypto-wasm/pkg/

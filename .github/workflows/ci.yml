@@ -240,6 +240,42 @@ jobs:
       - name: Build
         run: cargo build
 
+  crypto-wasm:
+    name: Crypto WASM checks
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/crypto-wasm
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build wasm target
+        run: cargo build --target wasm32-unknown-unknown
+
+      - name: Build wasm package
+        run: wasm-pack build --target web
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

@@ -3,6 +3,7 @@ SHELL := /bin/bash
 API_DIR := apps/api
 WEB_DIR := apps/web
 HASH_SERVICE_DIR := services/hash-service
+CRYPTO_WASM_DIR := packages/crypto-wasm
 COMPOSE_FILE := deployments/compose.yaml
 MIGRATIONS_DIR := apps/api/migrations
 
@@ -58,6 +59,19 @@ API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
 	test-rust \
 	build-rust \
 	verify-rust \
+	format-hash-service \
+	format-check-hash-service \
+	lint-hash-service \
+	test-hash-service \
+	build-hash-service \
+	verify-hash-service \
+	format-crypto-wasm \
+	format-check-crypto-wasm \
+	lint-crypto-wasm \
+	test-crypto-wasm \
+	build-crypto-wasm \
+	build-crypto-wasm-pkg \
+	verify-crypto-wasm \
 	mod-verify \
 	verify \
 	verify-api \
@@ -167,22 +181,56 @@ build-api:
 build-web:
 	cd $(WEB_DIR) && npm run build
 
-format-rust:
+format-rust: format-hash-service format-crypto-wasm
+
+format-check-rust: format-check-hash-service format-check-crypto-wasm
+
+lint-rust: lint-hash-service lint-crypto-wasm
+
+test-rust: test-hash-service test-crypto-wasm
+
+build-rust: build-hash-service build-crypto-wasm build-crypto-wasm-pkg
+
+verify-rust: verify-hash-service verify-crypto-wasm
+
+format-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo fmt
 
-format-check-rust:
+format-check-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo fmt --check
 
-lint-rust:
+lint-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo clippy -- -D warnings
 
-test-rust:
+test-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo test
 
-build-rust:
+build-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo build
 
-verify-rust: format-check-rust lint-rust test-rust build-rust
+verify-hash-service: format-check-hash-service lint-hash-service test-hash-service build-hash-service
+
+format-crypto-wasm:
+	cd $(CRYPTO_WASM_DIR) && cargo fmt
+
+format-check-crypto-wasm:
+	cd $(CRYPTO_WASM_DIR) && cargo fmt --check
+
+lint-crypto-wasm:
+	cd $(CRYPTO_WASM_DIR) && cargo clippy -- -D warnings
+
+test-crypto-wasm:
+	cd $(CRYPTO_WASM_DIR) && cargo test
+
+build-crypto-wasm:
+	cd $(CRYPTO_WASM_DIR) && cargo build --target wasm32-unknown-unknown
+
+build-crypto-wasm-pkg:
+	@command -v wasm-pack >/dev/null || \
+		(echo "wasm-pack is required. Install with: cargo install wasm-pack --locked" && exit 1)
+	cd $(CRYPTO_WASM_DIR) && wasm-pack build --target web
+
+verify-crypto-wasm: format-check-crypto-wasm lint-crypto-wasm test-crypto-wasm build-crypto-wasm build-crypto-wasm-pkg
 
 mod-verify:
 	cd $(API_DIR) && go mod verify
