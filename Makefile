@@ -129,8 +129,9 @@ test-api:
 		(echo "TEST_REDIS_URL is required" && exit 1)
 	cd $(API_DIR) && go test -race -count=1 ./...
 
-test-web:
+test-web: build-crypto-wasm-pkg
 	cd $(WEB_DIR) && npm run test
+	cd $(WEB_DIR) && npm run test:wasm
 
 test-e2e: db-reset-e2e
 	HASH_SERVICE_DIR="$(HASH_SERVICE_DIR)" \
@@ -146,7 +147,7 @@ lint-api:
 	cd $(API_DIR) && go vet ./...
 	cd $(API_DIR) && staticcheck ./...
 
-lint-web:
+lint-web: build-crypto-wasm-pkg
 	cd $(WEB_DIR) && npm run lint
 
 format: format-api format-web
@@ -165,7 +166,7 @@ format-check-api:
 format-check-web:
 	cd $(WEB_DIR) && npm run format:check
 
-typecheck-web:
+typecheck-web: build-crypto-wasm-pkg
 	cd $(WEB_DIR) && npm run typecheck
 
 build-api:
@@ -178,7 +179,7 @@ build-api:
 			-o "$$output" \
 			./cmd/api
 
-build-web:
+build-web: build-crypto-wasm-pkg
 	cd $(WEB_DIR) && npm run build
 
 format-rust: format-hash-service format-crypto-wasm

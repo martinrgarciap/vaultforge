@@ -166,6 +166,10 @@ Vitest and React Testing Library cover:
 - Session management
 - Loading, empty, retryable error, unauthorized, and not-found states
 
+The normal web test suite also includes provider-boundary crypto tests with a
+fake WASM module. Real Rust WASM crypto integration tests run separately under a
+Node Vitest config and load the generated `.wasm` bytes from disk.
+
 ### Official system smoke test
 
 The official VaultForge full-stack smoke test is:
@@ -272,6 +276,9 @@ Run frontend unit and component tests:
 make test-web
 ```
 
+`make test-web` first builds the crypto WASM package, then runs the normal
+Vitest suite and the Node-only real WASM integration suite.
+
 Run the official full-stack smoke test:
 
 ```bash
@@ -292,7 +299,9 @@ GitHub Actions runs:
 - Go formatting, module verification, Vet, Staticcheck, race-enabled tests,
   OpenAPI contract validation, PostgreSQL integration tests, and Redis
   integration tests
-- Frontend formatting, ESLint, TypeScript, Vitest, and production build
+- Frontend formatting, ESLint, TypeScript, normal Vitest tests, Node real WASM
+  integration tests, and production build
+- Rust checks for both the hash-service and crypto-wasm packages
 - The real-stack Playwright smoke test with PostgreSQL and Redis
 - In-memory OpenTelemetry safety and configuration tests without requiring Collector or Jaeger
 - Gitleaks against repository history

@@ -24,7 +24,13 @@ export default defineConfig([
     },
   },
   {
-    files: ["vite.config.ts", "vitest.config.ts"],
+    files: ["vite.config.ts", "vitest.config.ts", "vitest.wasm.config.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    files: ["test/**/*.ts"],
     languageOptions: {
       globals: globals.node,
     },

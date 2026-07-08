@@ -67,7 +67,10 @@ The API bounds aggregate headers, bearer tokens, JSON bodies, queries, cursors, 
 
 The API derives the current client identity from the direct TCP peer. It ignores forwarding headers until a trusted-proxy configuration is implemented.
 
-After client-side encryption is implemented, plaintext vault contents must never cross this boundary.
+The browser-side Rust WASM crypto boundary now exists. Vault passphrases, KEKs,
+and unwrapped vault keys must remain browser-side. After the Step 17
+ciphertext-only item migration, plaintext vault contents must never cross this
+boundary.
 
 ### Go API to Rust hashing service
 
@@ -122,7 +125,7 @@ PostgreSQL or Redis failure must not crash the process, leak connection details,
 | Component             | Allowed to see                                                                                                                                                                                                         | Must never see or retain                                                                                                                                                                                        |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Browser or API client | Account password while entered, in-memory access token, readable CSRF token, server-managed refresh cookie, and later vault keys and decrypted items while unlocked                                                    | Access tokens in browser persistence, JavaScript access to the `HttpOnly` refresh token, or keys and decrypted content in URLs, analytics, persistent logs, or error reports                                    |
-| Go API                | Account password and raw refresh token transiently during authentication, authenticated IDs, vault names, item types, and synthetic dummy item payloads during the current phase                                       | Vault master passphrase, KEK, unwrapped DEK, real vault secrets, future decrypted item contents, raw refresh tokens in persistent storage, or tokens and payloads in logs or metrics                            |
+| Go API                | Account password and raw refresh token transiently during authentication, authenticated IDs, vault names, item types, and synthetic dummy item payloads during the current phase                                       | Vault master passphrase, KEK, unwrapped DEK, unwrapped vault key, real vault secrets, future decrypted item contents, raw refresh tokens in persistent storage, or tokens and payloads in logs or metrics       |
 | Rust hashing service  | Account password transiently and PHC password hash while processing                                                                                                                                                    | Vault passphrase, vault key, vault items, session tokens, Redis state, or persistent password storage                                                                                                           |
 | PostgreSQL            | Email, password hash, password algorithm, refresh-token digest, session metadata, vault metadata, synthetic dummy payloads during the current phase, item versions, idempotency records, and sanitized outbox metadata | Plaintext account password, raw refresh token, access token, vault passphrase, unwrapped key, real vault secrets, or future decrypted vault items                                                               |
 | Redis                 | HMAC-derived key identities, fixed-window counters, failed-login counts, and temporary lockout state                                                                                                                   | Passwords, password hashes, raw identities, authorization headers, cookies, tokens, token digests, signing or HMAC keys, database URLs, vault values, encryption keys, request bodies, or raw dependency errors |
@@ -164,7 +167,7 @@ PostgreSQL or Redis failure must not crash the process, leak connection details,
 | Error leakage                         | Database or Redis connection details appear in an API response         | Current: dependency errors map to generic public responses, and startup and outage tests reject secret connection details                               |
 | Oversized input                       | Attacker submits huge headers, bodies, tokens, queries, or identifiers | Current: aggregate header, body, token, query, cursor, pagination, `If-Match`, request-ID, and identifier limits                                        |
 | Slow request or stuck dependency      | Work continues after the client or deadline is gone                    | Current: configurable request and dependency deadlines with context cancellation through handlers, services, repositories, PostgreSQL, and Redis        |
-| Ciphertext tampering                  | Stored encrypted data is modified                                      | Planned: AES-GCM authenticated encryption and authentication-tag verification                                                                           |
+| Ciphertext tampering                  | Stored encrypted data is modified                                      | Current: browser-side WASM crypto boundary exists. Step 17 remains responsible for ciphertext-only item storage with AES-GCM authentication tags        |
 | Nonce reuse                           | The same AES-GCM nonce is reused with one key                          | Planned: secure random nonce generation and automated tests                                                                                             |
 | Cross-site scripting                  | Injected JavaScript reads an access token or unlocked vault            | Current: the refresh token remains `HttpOnly`. Planned: restrictive CSP, dependency review, safe rendering, and short in-memory token and key lifetimes |
 | Supply-chain compromise               | A malicious frontend dependency reads decrypted data                   | Planned: minimize dependencies, use lockfiles, scan dependencies, and review sensitive dependency changes                                               |
@@ -176,7 +179,7 @@ PostgreSQL or Redis failure must not crash the process, leak connection details,
 
 - VaultForge has not received an independent security audit.
 - Only synthetic secrets are permitted during development.
-- Client-side vault encryption is not implemented yet.
+- The browser-side crypto boundary exists, but real ciphertext-only item storage remains Step 17.
 - Current synthetic item payloads are visible to the Go API and PostgreSQL.
 - Production signing-key and HMAC-key storage, rotation, and multi-key verification are not implemented yet.
 - Local development may use HTTP and therefore omits the cookie `Secure` flag; production enables it.
@@ -198,8 +201,8 @@ These rules must remain true throughout development:
 
 1. Account authentication and vault encryption remain separate.
 2. The backend never receives the vault master passphrase.
-3. The backend never receives the unwrapped vault data-encryption key.
-4. Real or decrypted vault secrets never enter server-side storage; current item payloads contain synthetic test data only.
+3. The backend never receives the KEK or unwrapped vault key.
+4. Real or decrypted vault secrets never enter server-side storage; current item payloads contain synthetic test data only until the Step 17 ciphertext-only migration.
 5. Authentication never falls back to a weaker method when the hasher is unavailable.
 6. Raw refresh tokens are not stored in PostgreSQL or returned in JSON.
 7. Refresh requests require exactly one CSRF cookie and matching `X-CSRF-Token` header.

@@ -17,7 +17,7 @@ graph LR
     B["React and TypeScript Client"] --> A["Go REST API"]
     A --> P["PostgreSQL"]
     A --> R["Redis"]
-    B -. "future browser encryption" .-> W["Rust WASM Crypto"]
+    B --> W["Rust WASM Crypto"]
     W -. "future encrypted envelopes" .-> A
     A --> H["Rust gRPC Hashing Service"]
     A --> O["OpenTelemetry"]
@@ -47,7 +47,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. Rust WebAssembly browser encryption, ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module now exists behind a frontend provider boundary, but it is not wired into real item storage yet. Ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -72,11 +72,11 @@ Protected routes verify both the access-token signature and the active PostgreSQ
 
 ### Vault encryption
 
-Vault encryption is a separate future browser-side workflow.
+Vault encryption is a separate browser-side workflow that is only partially implemented.
 
-A Rust WebAssembly module will derive and manage vault encryption keys in the browser. The Go API must never receive the vault master passphrase, an unwrapped vault key, or decrypted vault contents.
+A Rust WebAssembly module can now derive and manage vault encryption keys in the browser through a TypeScript provider boundary. The Go API must never receive the vault master passphrase, an unwrapped vault key, or decrypted vault contents.
 
-Current item payloads contain synthetic dummy JSON. They are visible to the Go API and PostgreSQL until browser-side encryption replaces them with encrypted envelopes.
+Current item payloads contain synthetic dummy JSON. They are visible to the Go API and PostgreSQL until Step 17 migrates item payloads to ciphertext-only envelopes.
 
 ## Current state
 
@@ -137,6 +137,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Vitest and React Testing Library coverage
 - Real-stack Playwright coverage across React, Go, PostgreSQL, and Redis
 - Automated axe accessibility scans
+- Rust WASM crypto provider boundary and real WASM integration tests; not wired into item storage yet
 
 ## Technology
 
@@ -149,10 +150,10 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Frontend testing:** Vitest, React Testing Library, Playwright, axe
 - **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
-- **Rust:** Tonic gRPC Argon2id hashing service
+- **Rust:** Tonic gRPC Argon2id hashing service and WebAssembly browser-side crypto module
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
-- **Planned:** Rust WebAssembly, browser-side encryption, Kubernetes, optional RabbitMQ workflows
+- **Planned:** Ciphertext-only item storage, Kubernetes, optional RabbitMQ workflows
 
 ## Repository structure
 
