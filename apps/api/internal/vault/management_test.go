@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -170,7 +171,7 @@ func TestServiceGetsOwnedVault(
 		)
 	}
 
-	if result != storedVault {
+	if !reflect.DeepEqual(result, storedVault) {
 		t.Fatalf(
 			"Get() result = %+v, want %+v",
 			result,

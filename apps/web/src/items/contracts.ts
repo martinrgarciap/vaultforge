@@ -1,4 +1,5 @@
 import { ApiError } from "../api/ApiError";
+import type { ItemEncryptedPayloadWire } from "./encryptedPayload";
 
 export const itemTypes = [
   "login",
@@ -11,6 +12,7 @@ export const itemTypes = [
 export type ItemType = (typeof itemTypes)[number];
 export type ItemState = "active" | "deleted";
 export type SyntheticItemPayload = Record<string, unknown>;
+export type DecryptedItemPayload = SyntheticItemPayload;
 
 export interface VaultItem {
   id: string;
@@ -34,6 +36,30 @@ export interface ItemListResponse {
 export interface ItemWriteRequest {
   type: ItemType;
   payload: SyntheticItemPayload;
+}
+
+export interface EncryptedVaultItem {
+  id: string;
+  type: ItemType;
+  encryptedPayload: ItemEncryptedPayloadWire;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface EncryptedItemResponse {
+  item: EncryptedVaultItem;
+}
+
+export interface EncryptedItemListResponse {
+  items: EncryptedVaultItem[];
+  nextCursor?: string;
+}
+
+export interface EncryptedItemWriteRequest {
+  type: ItemType;
+  encryptedPayload: ItemEncryptedPayloadWire;
 }
 
 const supportedItemTypes = new Set<string>(itemTypes);

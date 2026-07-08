@@ -1,6 +1,6 @@
 # VaultForge
 
-VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, browser-safe session handling, frontend architecture, distributed systems, and future browser-side cryptography.
+VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, browser-safe session handling, frontend architecture, distributed systems, and browser-side cryptography.
 
 The project is designed for an individual developer storing API keys, environment variables, database connection details, login records, and secure notes.
 
@@ -18,7 +18,7 @@ graph LR
     A --> P["PostgreSQL"]
     A --> R["Redis"]
     B --> W["Rust WASM Crypto"]
-    W -. "future encrypted envelopes" .-> A
+    W -. "encrypted envelopes" .-> A
     A --> H["Rust gRPC Hashing Service"]
     A --> O["OpenTelemetry"]
 ```
@@ -47,7 +47,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module now exists behind a frontend provider boundary, but it is not wired into real item storage yet. Ciphertext-only persistence, application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module encrypts and decrypts item values in the browser for normal create, edit, list, and detail workflows. Application container images, Kubernetes, and production deployment remain planned work.
 
 ### Account authentication
 
@@ -72,11 +72,11 @@ Protected routes verify both the access-token signature and the active PostgreSQ
 
 ### Vault encryption
 
-Vault encryption is a separate browser-side workflow that is only partially implemented.
+Vault encryption is a separate browser-side workflow.
 
 A Rust WebAssembly module can now derive and manage vault encryption keys in the browser through a TypeScript provider boundary. The Go API must never receive the vault master passphrase, an unwrapped vault key, or decrypted vault contents.
 
-Current item payloads contain synthetic dummy JSON. They are visible to the Go API and PostgreSQL until Step 17 migrates item payloads to ciphertext-only envelopes.
+Vault item values are encrypted and decrypted in the browser before normal create, edit, list, and detail workflows reach the Go API. PostgreSQL stores ciphertext and nonce bytes for encrypted item values, plus non-secret metadata such as vault IDs, item IDs, item types, versions, and timestamps.
 
 ## Current state
 
@@ -137,7 +137,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - Vitest and React Testing Library coverage
 - Real-stack Playwright coverage across React, Go, PostgreSQL, and Redis
 - Automated axe accessibility scans
-- Rust WASM crypto provider boundary and real WASM integration tests; not wired into item storage yet
+- Rust WASM crypto provider boundary, real WASM integration tests, and encrypted item create, edit, list, and detail flows
 
 ## Technology
 
@@ -153,7 +153,7 @@ Current item payloads contain synthetic dummy JSON. They are visible to the Go A
 - **Rust:** Tonic gRPC Argon2id hashing service and WebAssembly browser-side crypto module
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
-- **Planned:** Ciphertext-only item storage, Kubernetes, optional RabbitMQ workflows
+- **Planned:** Kubernetes, optional RabbitMQ workflows
 
 ## Repository structure
 
@@ -521,7 +521,7 @@ The browser must never persist access tokens in:
 - Logs
 - Error reports
 
-Account password hashing, session authentication, Redis operational security state, and future vault encryption are separate security concerns.
+Account password hashing, session authentication, Redis operational security state, and browser-side vault encryption are separate security concerns.
 
 Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development and tests permit HTTP.
 

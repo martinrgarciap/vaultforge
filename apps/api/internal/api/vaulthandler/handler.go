@@ -2,6 +2,7 @@ package vaulthandler
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"time"
@@ -72,6 +73,8 @@ type vaultResource struct {
 	Name          string    `json:"name"`
 	CryptoVersion *int16    `json:"cryptoVersion,omitempty"`
 	KDFVersion    *int16    `json:"kdfVersion,omitempty"`
+	Salt          *string   `json:"salt,omitempty"`
+	WrappedKey    *string   `json:"wrappedKey,omitempty"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
@@ -298,9 +301,21 @@ func newVaultResource(
 		Name:          storedVault.Name,
 		CryptoVersion: storedVault.CryptoVersion,
 		KDFVersion:    storedVault.KDFVersion,
+		Salt:          encodeOptionalVaultCryptoBytes(storedVault.Salt),
+		WrappedKey:    encodeOptionalVaultCryptoBytes(storedVault.WrappedKey),
 		CreatedAt:     storedVault.CreatedAt,
 		UpdatedAt:     storedVault.UpdatedAt,
 	}
+}
+
+func encodeOptionalVaultCryptoBytes(value []byte) *string {
+	if len(value) == 0 {
+		return nil
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(value)
+
+	return &encoded
 }
 
 func (handler *Handler) principal(
@@ -431,6 +446,30 @@ func (handler *Handler) writeServiceError(
 			http.StatusUnauthorized,
 			"unauthorized",
 			"A valid access token is required.",
+		)
+
+	case errors.Is(
+		err,
+		vault.ErrVaultCryptoMetadataInvalid,
+	):
+		handler.writeError(
+			w,
+			r,
+			http.StatusUnprocessableEntity,
+			"invalid_vault_crypto_metadata",
+			"The vault crypto metadata is invalid.",
+		)
+
+	case errors.Is(
+		err,
+		vault.ErrVaultCryptoMetadataAlreadyInitialized,
+	):
+		handler.writeError(
+			w,
+			r,
+			http.StatusConflict,
+			"vault_crypto_metadata_already_initialized",
+			"The vault crypto metadata has already been initialized.",
 		)
 
 	case errors.Is(err, context.Canceled),

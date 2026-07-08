@@ -17,25 +17,44 @@ type itemListResponse struct {
 }
 
 type itemResource struct {
-	ID        string          `json:"id"`
-	Type      vault.ItemType  `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-	Version   int             `json:"version"`
-	CreatedAt time.Time       `json:"createdAt"`
-	UpdatedAt time.Time       `json:"updatedAt"`
-	DeletedAt *time.Time      `json:"deletedAt,omitempty"`
+	ID               string                        `json:"id"`
+	Type             vault.ItemType                `json:"type"`
+	Payload          json.RawMessage               `json:"payload,omitempty"`
+	EncryptedPayload *itemEncryptedPayloadResource `json:"encryptedPayload,omitempty"`
+	Version          int                           `json:"version"`
+	CreatedAt        time.Time                     `json:"createdAt"`
+	UpdatedAt        time.Time                     `json:"updatedAt"`
+	DeletedAt        *time.Time                    `json:"deletedAt,omitempty"`
 }
 
 func newItemResource(storedItem vault.Item) itemResource {
-	return itemResource{
+	resource := itemResource{
 		ID:        storedItem.ID,
 		Type:      storedItem.Type,
-		Payload:   storedItem.Payload,
 		Version:   storedItem.Version,
 		CreatedAt: storedItem.CreatedAt,
 		UpdatedAt: storedItem.UpdatedAt,
 		DeletedAt: storedItem.DeletedAt,
 	}
+
+	if len(storedItem.Nonce) == 0 || vault.IsSyntheticItemNonce(storedItem.Nonce) {
+		resource.Payload = storedItem.Payload
+		return resource
+	}
+
+	encryptedPayload, err := newItemEncryptedPayloadResource(
+		vault.EncryptedItemEnvelope{
+			Payload: storedItem.Payload,
+			Nonce:   storedItem.Nonce,
+		},
+	)
+	if err != nil {
+		return resource
+	}
+
+	resource.EncryptedPayload = &encryptedPayload
+
+	return resource
 }
 
 func newItemListResponse(page vault.ItemPage) (itemListResponse, error) {

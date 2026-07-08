@@ -1,6 +1,8 @@
 # VaultForge API
 
-The VaultForge API is a Go HTTP service for account authentication, secure session management, authorization, PostgreSQL persistence, and future encrypted vault workflows.
+The VaultForge API is a Go HTTP service for account authentication, secure session management, authorization, PostgreSQL persistence, and browser-side encrypted vault workflows.
+
+The API validates encrypted item envelope shape, stores ciphertext and nonce bytes, and returns encrypted payload envelopes. It does not receive vault passphrases, key-encryption keys, unwrapped vault data keys, or decrypted item payloads.
 
 The current implementation includes:
 
@@ -15,7 +17,7 @@ The current implementation includes:
 - Stateful access-token validation against active PostgreSQL sessions
 - Session listing and revocation
 - Owner-scoped vault workflows
-- Complete synthetic vault-item lifecycle workflows
+- Complete encrypted vault-item lifecycle workflows
 - Keyset pagination
 - Idempotency keys for item creation
 - Strong `ETag` and `If-Match` optimistic concurrency
@@ -76,9 +78,9 @@ Redis stores only bounded, temporary operational security state. It never stores
 
 Handlers receive ownership from the authenticated principal. Clients cannot select an owner ID in request bodies or query parameters.
 
-The HTTP handlers do not know which algorithm or language performs password hashing. The current `PasswordHasher` implementation is a local Go Argon2id adapter. A future Rust gRPC adapter can replace it without changing the handlers or public API.
+The HTTP handlers do not know which algorithm or language performs password hashing. The current `PasswordHasher` implementation uses the Rust gRPC hash service through the shared password-hashing boundary.
 
-Vault-item payloads are currently synthetic generic JSON. The contract is intentionally generic so a later encrypted envelope can replace the synthetic payload without redesigning the item routes.
+Vault-item payloads are encrypted browser-side and sent to the API as opaque encrypted envelopes.
 
 ## Package layout
 

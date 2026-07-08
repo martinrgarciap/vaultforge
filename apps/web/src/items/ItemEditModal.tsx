@@ -5,8 +5,10 @@ import { ApiError } from "../api/ApiError";
 import { useAuth } from "../auth/useAuth";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
 import { Modal } from "../components/Modal";
+import { useCrypto } from "../crypto/useCrypto";
 import type { ItemType, VaultItem } from "./contracts";
-import { parseItemResponse } from "./contracts";
+import { decryptItemApiResponse } from "./itemApiCrypto";
+import { encryptItemWriteRequest } from "./itemEncryption";
 import { ItemPayloadFields } from "./ItemPayloadFields";
 import { itemResourcePath, itemVersionHeader } from "./request";
 import {
@@ -17,6 +19,7 @@ import {
 
 interface ItemEditModalProps {
   vaultId: string;
+  vaultKey: Uint8Array;
   item: VaultItem;
   onClose: () => void;
   onUpdated: (item: VaultItem) => void;
@@ -33,12 +36,14 @@ function isVersionConflict(error: unknown): boolean {
 
 export function ItemEditModal({
   vaultId,
+  vaultKey,
   item,
   onClose,
   onUpdated,
   onConflict,
 }: ItemEditModalProps) {
   const { request } = useAuth();
+  const { provider } = useCrypto();
   const submissionRef = useRef(false);
 
   const [itemType, setItemType] = useState<ItemType>(item.type);
@@ -67,6 +72,13 @@ export function ItemEditModal({
     setIsSaving(true);
 
     try {
+      const encryptedRequest = await encryptItemWriteRequest({
+        provider,
+        vaultKey,
+        type: itemType,
+        payload: parsedPayload.payload,
+      });
+
       const rawResponse = await request<unknown>(
         itemResourcePath(vaultId, item.id),
         {
@@ -74,14 +86,15 @@ export function ItemEditModal({
           headers: {
             "If-Match": itemVersionHeader(item.version),
           },
-          json: {
-            type: itemType,
-            payload: parsedPayload.payload,
-          },
+          json: encryptedRequest,
         },
       );
 
-      const response = parseItemResponse(rawResponse);
+      const response = await decryptItemApiResponse({
+        provider,
+        vaultKey,
+        value: rawResponse,
+      });
 
       onUpdated(response.item);
       onClose();

@@ -219,7 +219,8 @@ The real-stack Playwright workflow covers:
 - Absence of synthetic passwords in browser console messages and page errors
 - Presence of an `HttpOnly` session cookie
 - Vault creation
-- Item creation
+- Browser-side vault encryption setup and unlock
+- Encrypted item creation
 - Authentication restoration after reload
 - Two-session stale-version conflict handling
 - Delete, restore, and permanent deletion
@@ -265,7 +266,7 @@ Never expose or log:
 
 Refresh tokens are managed by the API through an `HttpOnly` cookie. The client reads only the separate CSRF cookie required for refresh.
 
-Use synthetic vault data only. Current item payloads are visible to the Go API and PostgreSQL because browser-side encryption has not been implemented.
+Use synthetic vault data only. Normal item create, edit, list, and detail workflows encrypt and decrypt item values in the browser with the Rust WASM crypto module. The Go API and PostgreSQL store ciphertext envelopes, nonces, wrapped vault keys, salts, and non-secret metadata, but they must not receive vault passphrases, key-encryption keys, unwrapped vault data keys, or decrypted item payloads.
 
 Sensitive values are masked by default and automatically re-mask 15 seconds after reveal. Successful copies display temporary visual confirmation and accessible status feedback. VaultForge attempts to clear copied values after 30 seconds only when browser support allows reading the clipboard and the clipboard still contains the copied value. Revealed values are also hidden after five minutes of inactivity or when the browser tab becomes hidden. These controls do not cryptographically lock or encrypt the vault.
 

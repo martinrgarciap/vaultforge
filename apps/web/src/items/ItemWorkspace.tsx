@@ -6,14 +6,16 @@ import {
   LoadingState,
   RequestErrorState,
 } from "../components/PageState";
+import { useCrypto } from "../crypto/useCrypto";
+import { decryptItemApiListResponse } from "./itemApiCrypto";
 import type { ItemState, VaultItem } from "./contracts";
-import { parseItemListResponse } from "./contracts";
 import { ItemCreateModal } from "./ItemCreateModal";
 import { ItemGroupedTables } from "./ItemGroupedTables";
 import { itemCollectionPath } from "./request";
 
 interface ItemWorkspaceProps {
   vaultId: string;
+  vaultKey: Uint8Array;
 }
 
 interface ItemListCacheEntry {
@@ -51,8 +53,9 @@ function appendUniqueItems(
   ];
 }
 
-export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
+export function ItemWorkspace({ vaultId, vaultKey }: ItemWorkspaceProps) {
   const { request } = useAuth();
+  const { provider } = useCrypto();
   const loadMoreRef = useRef(false);
 
   const [listState, setListState] = useState<ItemState>("active");
@@ -79,7 +82,13 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
 
     const loadState = (state: ItemState) => {
       void request<unknown>(itemCollectionPath(vaultId, state))
-        .then(parseItemListResponse)
+        .then((value) =>
+          decryptItemApiListResponse({
+            provider,
+            vaultKey,
+            value,
+          }),
+        )
         .then((response) => {
           if (!active) {
             return;
@@ -117,7 +126,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
     return () => {
       active = false;
     };
-  }, [reloadVersion, request, vaultId]);
+  }, [provider, reloadVersion, request, vaultId, vaultKey]);
 
   const closeCreateModal = useCallback(() => {
     setIsCreateOpen(false);
@@ -151,7 +160,11 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
         itemCollectionPath(vaultId, listState, nextCursor),
       );
 
-      const response = parseItemListResponse(rawResponse);
+      const response = await decryptItemApiListResponse({
+        provider,
+        vaultKey,
+        value: rawResponse,
+      });
 
       setListCache((currentCache) => ({
         ...currentCache,
@@ -291,6 +304,7 @@ export function ItemWorkspace({ vaultId }: ItemWorkspaceProps) {
       {isCreateOpen ? (
         <ItemCreateModal
           vaultId={vaultId}
+          vaultKey={vaultKey}
           onClose={closeCreateModal}
           onCreated={handleCreated}
         />

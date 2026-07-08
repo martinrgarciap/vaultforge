@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -134,6 +135,8 @@ func (store *VaultStore) ListOwned(
 				name,
 				crypto_version,
 				kdf_version,
+				salt,
+				wrapped_key,
 				created_at,
 				updated_at
 			FROM vaults
@@ -210,6 +213,8 @@ func (store *VaultStore) GetOwned(
 					name,
 					crypto_version,
 					kdf_version,
+					salt,
+					wrapped_key,
 					created_at,
 					updated_at
 				FROM vaults
@@ -285,6 +290,8 @@ func (store *VaultStore) RenameOwned(
 					name,
 					crypto_version,
 					kdf_version,
+					salt,
+					wrapped_key,
 					created_at,
 					updated_at
 			`,
@@ -421,6 +428,8 @@ func scanVaultRow(
 		storedVault   vaultdomain.Vault
 		cryptoVersion pgtype.Int2
 		kdfVersion    pgtype.Int2
+		salt          []byte
+		wrappedKey    []byte
 	)
 
 	err := row.Scan(
@@ -429,6 +438,8 @@ func scanVaultRow(
 		&storedVault.Name,
 		&cryptoVersion,
 		&kdfVersion,
+		&salt,
+		&wrappedKey,
 		&storedVault.CreatedAt,
 		&storedVault.UpdatedAt,
 	)
@@ -445,6 +456,9 @@ func scanVaultRow(
 		value := kdfVersion.Int16
 		storedVault.KDFVersion = &value
 	}
+
+	storedVault.Salt = bytes.Clone(salt)
+	storedVault.WrappedKey = bytes.Clone(wrappedKey)
 
 	return storedVault, nil
 }
@@ -469,6 +483,8 @@ func createVaultInTransaction(
 			name,
 			crypto_version,
 			kdf_version,
+			salt,
+			wrapped_key,
 			created_at,
 			updated_at
 	`

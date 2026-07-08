@@ -166,8 +166,9 @@ func TestOpenAPIValidatesCriticalRequestsAndResponses(t *testing.T) {
 			name:   "create item",
 			method: http.MethodPost,
 			path:   "/v1/vaults/" + vaultID + "/items",
-			requestBody: `{"type":"secure_note","payload":{"title":"Synthetic note",` +
-				`"note":"Synthetic contract value"}}`,
+			requestBody: `{"type":"secure_note","encryptedPayload":{"version":1,` +
+				`"algorithm":"AES-256-GCM",` +
+				`"blob":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHA=="}}`,
 			requestHeaders: mergeContractHeaders(
 				authorization,
 				jsonHeader,
@@ -175,7 +176,8 @@ func TestOpenAPIValidatesCriticalRequestsAndResponses(t *testing.T) {
 			),
 			status: http.StatusCreated,
 			responseBody: `{"item":{"id":"` + itemID + `","type":"secure_note",` +
-				`"payload":{"title":"Synthetic note","note":"Synthetic contract value"},` +
+				`"encryptedPayload":{"version":1,"algorithm":"AES-256-GCM",` +
+				`"blob":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHA=="},` +
 				`"version":1,"createdAt":"` + timestamp + `","updatedAt":"` + timestamp + `"}}`,
 			responseHeaders: itemResponseHeader,
 		},
@@ -183,8 +185,9 @@ func TestOpenAPIValidatesCriticalRequestsAndResponses(t *testing.T) {
 			name:   "update item",
 			method: http.MethodPut,
 			path:   "/v1/vaults/" + vaultID + "/items/" + itemID,
-			requestBody: `{"type":"secure_note","payload":{"title":"Updated synthetic note",` +
-				`"note":"Updated synthetic contract value"}}`,
+			requestBody: `{"type":"secure_note","encryptedPayload":{"version":1,` +
+				`"algorithm":"AES-256-GCM",` +
+				`"blob":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHA=="}}`,
 			requestHeaders: mergeContractHeaders(
 				authorization,
 				jsonHeader,
@@ -192,7 +195,8 @@ func TestOpenAPIValidatesCriticalRequestsAndResponses(t *testing.T) {
 			),
 			status: http.StatusOK,
 			responseBody: `{"item":{"id":"` + itemID + `","type":"secure_note",` +
-				`"payload":{"title":"Updated synthetic note","note":"Updated synthetic contract value"},` +
+				`"encryptedPayload":{"version":1,"algorithm":"AES-256-GCM",` +
+				`"blob":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHA=="},` +
 				`"version":2,"createdAt":"` + timestamp + `","updatedAt":"2026-06-23T18:01:00Z"}}`,
 			responseHeaders: http.Header{
 				"Content-Type": []string{"application/json"},

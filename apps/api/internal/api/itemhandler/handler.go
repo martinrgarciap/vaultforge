@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxItemRequestBodyBytes int64 = vault.MaxSyntheticItemPayloadBytes + 4*1024
+const maxItemRequestBodyBytes int64 = vault.MaxEncryptedItemBlobBase64Bytes + 4*1024
 
 type ItemService interface {
 	CreateItem(
@@ -61,8 +61,9 @@ type Handler struct {
 }
 
 type createItemRequest struct {
-	Type    vault.ItemType  `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Type             vault.ItemType               `json:"type"`
+	Payload          json.RawMessage              `json:"payload"`
+	EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
 }
 
 func New(
@@ -103,16 +104,25 @@ func (handler *Handler) Create(
 		return
 	}
 
+	encryptedEnvelope, err := encryptedItemEnvelopePointerFromResource(
+		requestBody.EncryptedPayload,
+	)
+	if err != nil {
+		handler.writeServiceError(w, r, err)
+		return
+	}
+
 	vaultID := chi.URLParam(r, "vaultID")
 
 	createdItem, err := handler.itemService.CreateItem(
 		r.Context(),
 		vault.CreateItemInput{
-			OwnerID:        principal.UserID,
-			VaultID:        vaultID,
-			Type:           requestBody.Type,
-			Payload:        requestBody.Payload,
-			IdempotencyKey: key,
+			OwnerID:           principal.UserID,
+			VaultID:           vaultID,
+			Type:              requestBody.Type,
+			Payload:           requestBody.Payload,
+			EncryptedEnvelope: encryptedEnvelope,
+			IdempotencyKey:    key,
 			CorrelationID: chimiddleware.GetReqID(
 				r.Context(),
 			),
@@ -281,6 +291,17 @@ func (handler *Handler) writeServiceError(
 			"item_payload_too_large",
 			"The item payload is too large.",
 		)
+	case errors.Is(
+		err,
+		vault.ErrItemEncryptedPayloadTooLarge,
+	):
+		handler.writeError(
+			w,
+			r,
+			http.StatusRequestEntityTooLarge,
+			"item_encrypted_payload_too_large",
+			"The encrypted item payload is too large.",
+		)
 
 	case errors.Is(
 		err,
@@ -300,6 +321,22 @@ func (handler *Handler) writeServiceError(
 			http.StatusUnprocessableEntity,
 			"invalid_item_payload",
 			"The item payload must be one valid JSON object.",
+		)
+
+	case errors.Is(
+		err,
+		vault.ErrItemEncryptedPayloadEmpty,
+	),
+		errors.Is(
+			err,
+			vault.ErrItemEncryptedPayloadInvalid,
+		):
+		handler.writeError(
+			w,
+			r,
+			http.StatusUnprocessableEntity,
+			"invalid_encrypted_item_payload",
+			"The encrypted item payload is invalid.",
 		)
 
 	case errors.Is(

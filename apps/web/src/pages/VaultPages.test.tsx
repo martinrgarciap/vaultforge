@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   fireEvent,
   render,
@@ -12,6 +13,14 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue, AuthStatus } from "../auth/types";
+import type { CryptoProvider } from "../crypto/CryptoProvider";
+import { CryptoContext } from "../crypto/CryptoContext";
+import {
+  CRYPTO_ENVELOPE_VERSION,
+  type ItemCryptoEnvelope,
+  type WrappedKeyEnvelope,
+} from "../crypto/cryptoTypes";
+import { VaultUnlockProvider } from "../vaults/VaultUnlockProvider";
 import { VaultDetailPage } from "./VaultDetailPage";
 import { VaultsPage } from "./VaultsPage";
 
@@ -45,6 +54,52 @@ function createAuthValue(
   };
 }
 
+function createTestItemEnvelope(): ItemCryptoEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: "AES-256-GCM",
+    blob: new Uint8Array(28),
+  };
+}
+
+function createTestWrappedKeyEnvelope(): WrappedKeyEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: "AES-256-GCM",
+    wrappedKey: new Uint8Array(60),
+  };
+}
+
+function createTestCryptoProvider(): CryptoProvider {
+  return {
+    initialize: vi.fn(async () => undefined),
+    generateVaultKey: vi.fn(async () => new Uint8Array(32)),
+    deriveKey: vi.fn(async () => new Uint8Array(32)),
+    encryptItem: vi.fn(
+      async (): Promise<ItemCryptoEnvelope> => createTestItemEnvelope(),
+    ),
+    decryptItem: vi.fn(async () => new Uint8Array()),
+    wrapKey: vi.fn(
+      async (): Promise<WrappedKeyEnvelope> => createTestWrappedKeyEnvelope(),
+    ),
+    unwrapKey: vi.fn(async () => new Uint8Array(32)),
+  };
+}
+
+function TestCryptoProviders({
+  children,
+  provider = createTestCryptoProvider(),
+}: {
+  children: ReactNode;
+  provider?: CryptoProvider;
+}) {
+  return (
+    <CryptoContext.Provider value={{ provider, status: "ready", error: null }}>
+      <VaultUnlockProvider>{children}</VaultUnlockProvider>
+    </CryptoContext.Provider>
+  );
+}
+
 function renderVaultList(
   requestImplementation: RequestImplementation,
   status: AuthStatus = "authenticated",
@@ -70,11 +125,13 @@ function renderVaultDetail(requestImplementation: RequestImplementation) {
   render(
     <MemoryRouter initialEntries={["/vaults/vault-123"]}>
       <AuthContext.Provider value={createAuthValue(requestImplementation)}>
-        <Routes>
-          <Route path="/vaults/:vaultId" element={<VaultDetailPage />} />
+        <TestCryptoProviders>
+          <Routes>
+            <Route path="/vaults/:vaultId" element={<VaultDetailPage />} />
 
-          <Route path="/vaults" element={<h1>Vault List destination</h1>} />
-        </Routes>
+            <Route path="/vaults" element={<h1>Vault List destination</h1>} />
+          </Routes>
+        </TestCryptoProviders>
       </AuthContext.Provider>
     </MemoryRouter>,
   );

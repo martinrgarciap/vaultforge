@@ -197,7 +197,7 @@ func TestNewItemCreateIdempotencyRejectsInvalidRequestData(t *testing.T) {
 				Payload: validEnvelope.Payload,
 				Nonce:   []byte("not-the-synthetic-nonce"),
 			},
-			wantErr: ErrItemPayloadInvalid,
+			wantErr: ErrItemEncryptedPayloadInvalid,
 		},
 	}
 

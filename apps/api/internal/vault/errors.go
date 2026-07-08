@@ -26,6 +26,12 @@ var (
 	ErrVaultNotFound = errors.New(
 		"vault was not found",
 	)
+	ErrVaultCryptoMetadataInvalid = errors.New(
+		"vault crypto metadata is invalid",
+	)
+	ErrVaultCryptoMetadataAlreadyInitialized = errors.New(
+		"vault crypto metadata is already initialized",
+	)
 	ErrVaultUnavailable = errors.New(
 		"vault service is unavailable",
 	)

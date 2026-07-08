@@ -1,20 +1,20 @@
 package vault
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 )
 
 type UpdateItemInput struct {
-	OwnerID         string
-	VaultID         string
-	ItemID          string
-	Type            ItemType
-	Payload         json.RawMessage
-	ExpectedVersion int
-	CorrelationID   string
+	OwnerID           string
+	VaultID           string
+	ItemID            string
+	Type              ItemType
+	Payload           json.RawMessage
+	EncryptedEnvelope *EncryptedItemEnvelope
+	ExpectedVersion   int
+	CorrelationID     string
 }
 
 func (service *Service) UpdateItem(
@@ -49,7 +49,10 @@ func (service *Service) UpdateItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
-	envelope, err := NewSyntheticItemEnvelope(input.Payload)
+	envelope, err := newItemEnvelopeFromWriteInput(
+		input.Payload,
+		input.EncryptedEnvelope,
+	)
 	if err != nil {
 		return Item{}, err
 	}
@@ -78,7 +81,7 @@ func (service *Service) UpdateItem(
 		updatedItem.ID != input.ItemID ||
 		updatedItem.Type != input.Type ||
 		updatedItem.Version != input.ExpectedVersion+1 ||
-		!bytes.Equal(updatedItem.Payload, envelope.Payload) {
+		!itemEnvelopesEqual(updatedItem.Envelope(), envelope) {
 		return Item{}, fmt.Errorf("update vault item: %w", ErrItemUnavailable)
 	}
 

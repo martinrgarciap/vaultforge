@@ -91,6 +91,10 @@ func (app *Application) Routes() http.Handler {
 
 					router.With(
 						app.mutationRateLimit(),
+					).Put("/crypto", app.vaultHandler.InitializeCrypto)
+
+					router.With(
+						app.mutationRateLimit(),
 					).Patch("/", app.vaultHandler.Rename)
 
 					router.With(

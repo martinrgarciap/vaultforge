@@ -14,6 +14,7 @@ import {
 import { ItemWorkspace } from "../items/ItemWorkspace";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
+import { VaultCryptoGate } from "../vaults/VaultCryptoGate";
 import { VaultEditModal } from "../vaults/VaultEditModal";
 
 function formatTimestamp(value: string): string {
@@ -264,7 +265,15 @@ export function VaultDetailPage() {
           </dl>
 
           <div className="vault-detail-content">
-            <ItemWorkspace key={vault.id} vaultId={vault.id} />
+            <VaultCryptoGate vault={vault} onVaultUpdated={handleVaultUpdated}>
+              {(vaultKey) => (
+                <ItemWorkspace
+                  key={vault.id}
+                  vaultId={vault.id}
+                  vaultKey={vaultKey}
+                />
+              )}
+            </VaultCryptoGate>
           </div>
 
           {isEditOpen ? (

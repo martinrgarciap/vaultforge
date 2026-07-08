@@ -6,7 +6,7 @@ VaultForge is an educational and portfolio project.
 
 It is not an audited password manager or production secrets-management system.
 
-Only synthetic data may be used until client-side vault encryption is complete and the implementation has received an independent security review.
+Only synthetic data may be used until the implementation has received an independent security review.
 
 ## Supported data
 
@@ -182,13 +182,14 @@ Failure behavior is defined and tested:
 
 Controlled outage tests verify failure and recovery behavior for both PostgreSQL and Redis.
 
-## Current synthetic vault API
+## Vault item API
 
-The current backend implements owner-scoped vault and item workflows using synthetic dummy payloads.
+The current backend implements owner-scoped vault and item workflows using encrypted item payload envelopes for normal browser flows.
 
 The current item API:
 
 - Accepts only documented item types.
+- Validates encrypted item envelope shape.
 - Derives the owner from the authenticated bearer principal.
 - Prevents cross-user access through owner-scoped service and store queries.
 - Requires an idempotency key when creating an item.
@@ -198,11 +199,11 @@ The current item API:
 - Writes allow-listed sanitized audit metadata through the same database transaction as each mutation.
 - Includes regression tests that reject payload, key, hash, name, and secret leakage into outbox metadata.
 
-These payloads are not encrypted yet and are visible to the Go API and PostgreSQL. Only synthetic values are permitted.
+Encrypted item values are stored by the Go API and PostgreSQL as opaque ciphertext envelopes. Non-secret metadata such as vault IDs, item IDs, item types, versions, timestamps, salts, and wrapped vault keys remains visible to backend services.
 
 ## Vault encryption
 
-Future vault encryption will occur in the browser through a Rust WebAssembly module.
+Vault item values are encrypted and decrypted in the browser with the Rust WASM crypto module before normal item create, edit, list, and detail workflows reach the Go API.
 
 The Go API must never receive:
 
@@ -211,7 +212,7 @@ The Go API must never receive:
 - An unwrapped vault data-encryption key
 - Decrypted vault contents
 
-The backend will persist encrypted payloads and non-secret cryptographic metadata only.
+The backend persists encrypted payloads and non-secret cryptographic metadata only.
 
 ## Sensitive logging and metrics policy
 
@@ -318,8 +319,8 @@ The current backend includes:
 ## Known limitations
 
 - VaultForge has not received an independent security audit.
-- Client-side vault encryption is not yet implemented.
-- Current synthetic item payloads are visible to the Go API and PostgreSQL.
+- Vault item values are encrypted and decrypted in the browser with the Rust WASM crypto module before normal item create, edit, list, and detail workflows reach the Go API.
+- Encrypted item values are stored by the Go API and PostgreSQL as opaque ciphertext envelopes. Non-secret metadata such as vault IDs, item IDs, item types, versions, timestamps, salts, and wrapped vault keys remains visible to backend services.
 - Production signing-key and HMAC-key storage and rotation are not yet implemented.
 - Local development may use unencrypted HTTP and therefore omits the cookie `Secure` flag; production enables it.
 - Trusted reverse-proxy handling is not implemented; forwarded client-IP headers are intentionally ignored.
@@ -327,11 +328,11 @@ The current backend includes:
 - A successful cross-site scripting attack could access the in-memory access token and readable CSRF token, although not the `HttpOnly` refresh token.
 - Account recovery is not implemented.
 - Multi-factor authentication is not implemented.
-- A compromised browser could access decrypted data while a future vault is unlocked.
+- A compromised browser could access decrypted data while a vault is unlocked.
 - Some non-secret metadata may remain visible to backend services.
 - The temporary Go Argon2id adapter will later be replaced by a Rust gRPC service.
 - The local OpenTelemetry Collector and Jaeger setup is development-only, uses temporary trace storage, and does not provide production alerting or retention.
-- RabbitMQ publication remains optional future work. Production deployment and browser-side encryption remain future roadmap work.
+- RabbitMQ publication remains optional future work. Production deployment polish remains future roadmap work.
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat model, accepted risks, and trust boundaries.
 

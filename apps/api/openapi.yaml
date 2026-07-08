@@ -4,8 +4,7 @@ info:
   version: 0.9.0
   description: |
     HTTP contract for the current VaultForge portfolio application.
-    Vault item payloads are synthetic and remain visible to the API and PostgreSQL
-    until the future browser-encryption phase is complete.
+    Vault item payloads are encrypted in the browser before they are sent to the API.
 servers:
   - url: http://localhost:8080
     description: Local development API
@@ -341,6 +340,43 @@ paths:
         '401':
           $ref: '#/components/responses/ErrorResponse'
         '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/vaults/{vaultID}/crypto:
+    parameters:
+      - $ref: '#/components/parameters/VaultID'
+
+    put:
+      operationId: initializeVaultCrypto
+      tags: [Vaults]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultCryptoMetadataRequest'
+      responses:
+        '200':
+          description: Vault crypto metadata initialized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
           $ref: '#/components/responses/ErrorResponse'
         '429':
           $ref: '#/components/responses/RateLimitedResponse'
@@ -908,6 +944,36 @@ components:
           minLength: 1
           maxLength: 128
 
+    VaultCryptoMetadataRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - cryptoVersion
+        - kdfVersion
+        - salt
+        - wrappedKey
+      properties:
+        cryptoVersion:
+          type: integer
+          format: int32
+          enum:
+            - 1
+        kdfVersion:
+          type: integer
+          format: int32
+          enum:
+            - 1
+        salt:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 128
+        wrappedKey:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 8192
+
     Vault:
       type: object
       additionalProperties: false
@@ -929,6 +995,12 @@ components:
           type: integer
           format: int32
           nullable: true
+        salt:
+          type: string
+          format: byte
+        wrappedKey:
+          type: string
+          format: byte
         createdAt:
           type: string
           format: date-time
@@ -965,18 +1037,40 @@ components:
         - database_connection
         - secure_note
 
+    ItemEncryptedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - algorithm
+        - blob
+      properties:
+        version:
+          type: integer
+          format: int32
+          enum:
+            - 1
+        algorithm:
+          type: string
+          enum:
+            - AES-256-GCM
+        blob:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 90000
+
     ItemWriteRequest:
       type: object
       additionalProperties: false
       required:
         - type
-        - payload
+        - encryptedPayload
       properties:
         type:
           $ref: '#/components/schemas/ItemType'
-        payload:
-          type: object
-          additionalProperties: true
+        encryptedPayload:
+          $ref: '#/components/schemas/ItemEncryptedPayload'
 
     Item:
       type: object
@@ -984,7 +1078,7 @@ components:
       required:
         - id
         - type
-        - payload
+        - encryptedPayload
         - version
         - createdAt
         - updatedAt
@@ -993,9 +1087,8 @@ components:
           type: string
         type:
           $ref: '#/components/schemas/ItemType'
-        payload:
-          type: object
-          additionalProperties: true
+        encryptedPayload:
+          $ref: '#/components/schemas/ItemEncryptedPayload'
         version:
           type: integer
           minimum: 1

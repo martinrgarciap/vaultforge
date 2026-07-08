@@ -16,7 +16,7 @@ type CreateItemStoreInput struct {
 	OwnerID       string
 	VaultID       string
 	Type          ItemType
-	Envelope      SyntheticItemEnvelope
+	Envelope      ItemEnvelope
 	Idempotency   ItemCreateIdempotency
 	CorrelationID string
 }
@@ -39,7 +39,7 @@ type UpdateItemStoreInput struct {
 	VaultID         string
 	ItemID          string
 	Type            ItemType
-	Envelope        SyntheticItemEnvelope
+	Envelope        ItemEnvelope
 	ExpectedVersion int
 	CorrelationID   string
 }

@@ -13,8 +13,9 @@ import (
 )
 
 type updateItemRequest struct {
-	Type    vault.ItemType  `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Type             vault.ItemType               `json:"type"`
+	Payload          json.RawMessage              `json:"payload"`
+	EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
 }
 
 func (handler *Handler) Update(
@@ -45,15 +46,24 @@ func (handler *Handler) Update(
 		return
 	}
 
+	encryptedEnvelope, err := encryptedItemEnvelopePointerFromResource(
+		requestBody.EncryptedPayload,
+	)
+	if err != nil {
+		handler.writeServiceError(w, r, err)
+		return
+	}
+
 	updatedItem, err := handler.itemService.UpdateItem(
 		r.Context(),
 		vault.UpdateItemInput{
-			OwnerID:         principal.UserID,
-			VaultID:         chi.URLParam(r, "vaultID"),
-			ItemID:          chi.URLParam(r, "itemID"),
-			Type:            requestBody.Type,
-			Payload:         requestBody.Payload,
-			ExpectedVersion: expectedVersion,
+			OwnerID:           principal.UserID,
+			VaultID:           chi.URLParam(r, "vaultID"),
+			ItemID:            chi.URLParam(r, "itemID"),
+			Type:              requestBody.Type,
+			Payload:           requestBody.Payload,
+			EncryptedEnvelope: encryptedEnvelope,
+			ExpectedVersion:   expectedVersion,
 			CorrelationID: chimiddleware.GetReqID(
 				r.Context(),
 			),

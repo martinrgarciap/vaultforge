@@ -19,7 +19,7 @@ type ItemCreateIdempotency struct {
 func NewItemCreateIdempotency(
 	key string,
 	itemType ItemType,
-	envelope SyntheticItemEnvelope,
+	envelope ItemEnvelope,
 ) (ItemCreateIdempotency, error) {
 	normalizedKey := strings.TrimSpace(key)
 
@@ -31,30 +31,64 @@ func NewItemCreateIdempotency(
 		return ItemCreateIdempotency{}, ErrItemTypeInvalid
 	}
 
-	normalizedPayload, err := NormalizeSyntheticItemPayload(envelope.Payload)
+	requestBytes, err := itemCreateRequestHashBytes(itemType, envelope)
 	if err != nil {
 		return ItemCreateIdempotency{}, err
-	}
-
-	if !IsSyntheticItemNonce(envelope.Nonce) {
-		return ItemCreateIdempotency{}, ErrItemPayloadInvalid
-	}
-
-	requestBytes, err := json.Marshal(
-		struct {
-			Type    ItemType        `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}{
-			Type:    itemType,
-			Payload: normalizedPayload,
-		},
-	)
-	if err != nil {
-		return ItemCreateIdempotency{}, ErrItemPayloadInvalid
 	}
 
 	return ItemCreateIdempotency{
 		KeyHash:     sha256.Sum256([]byte(normalizedKey)),
 		RequestHash: sha256.Sum256(requestBytes),
 	}, nil
+}
+
+func itemCreateRequestHashBytes(
+	itemType ItemType,
+	envelope ItemEnvelope,
+) ([]byte, error) {
+	if IsSyntheticItemNonce(envelope.Nonce) {
+		normalizedPayload, err := NormalizeSyntheticItemPayload(envelope.Payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(
+			struct {
+				Type    ItemType        `json:"type"`
+				Payload json.RawMessage `json:"payload"`
+			}{
+				Type:    itemType,
+				Payload: normalizedPayload,
+			},
+		)
+	}
+
+	encryptedEnvelope := EncryptedItemEnvelope(envelope)
+
+	blob, err := encryptedEnvelope.Blob()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(
+		struct {
+			Type             ItemType `json:"type"`
+			EncryptedPayload struct {
+				Version   int    `json:"version"`
+				Algorithm string `json:"algorithm"`
+				Blob      []byte `json:"blob"`
+			} `json:"encryptedPayload"`
+		}{
+			Type: itemType,
+			EncryptedPayload: struct {
+				Version   int    `json:"version"`
+				Algorithm string `json:"algorithm"`
+				Blob      []byte `json:"blob"`
+			}{
+				Version:   ItemEncryptedPayloadVersion,
+				Algorithm: ItemEncryptedPayloadAlgorithm,
+				Blob:      blob,
+			},
+		},
+	)
 }

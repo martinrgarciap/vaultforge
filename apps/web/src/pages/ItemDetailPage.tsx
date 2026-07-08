@@ -12,9 +12,10 @@ import {
   RequestErrorState,
   ResourceNotFoundState,
 } from "../components/PageState";
+import { useCrypto } from "../crypto/useCrypto";
 import type { ItemState, VaultItem } from "../items/contracts";
-import { parseItemResponse } from "../items/contracts";
 import { itemDisplayName } from "../items/display";
+import { decryptItemApiResponse } from "../items/itemApiCrypto";
 import { ItemDetails } from "../items/ItemDetails";
 import { ItemEditModal } from "../items/ItemEditModal";
 import {
@@ -26,6 +27,8 @@ import {
 import { itemTypeLabel } from "../items/validation";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
+import { VaultCryptoGate } from "../vaults/VaultCryptoGate";
+import { useVaultUnlock } from "../vaults/useVaultUnlock";
 
 function isVersionConflict(error: unknown): boolean {
   return (
@@ -40,6 +43,8 @@ export function ItemDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { request, status } = useAuth();
+  const { provider } = useCrypto();
+  const { getVaultKey, unlockedVaultIds } = useVaultUnlock();
 
   const actionRef = useRef(false);
 
@@ -69,19 +74,39 @@ export function ItemDetailPage() {
 
     const encodedVaultId = encodeURIComponent(vaultId);
 
-    void Promise.all([
-      request<unknown>(`/v1/vaults/${encodedVaultId}`).then(parseVaultResponse),
-
-      request<unknown>(itemResourcePath(vaultId, itemId, itemState)).then(
-        parseItemResponse,
-      ),
-    ])
-      .then(([vaultResponse, itemResponse]) => {
+    void request<unknown>(`/v1/vaults/${encodedVaultId}`)
+      .then(parseVaultResponse)
+      .then(async (vaultResponse) => {
         if (!active) {
           return;
         }
 
         setVault(vaultResponse.vault);
+
+        const currentVaultKey = getVaultKey(vaultResponse.vault.id);
+
+        if (!currentVaultKey) {
+          setItem(null);
+          setLoadError(null);
+          setIsLoading(false);
+
+          return;
+        }
+
+        const itemResponse = await request<unknown>(
+          itemResourcePath(vaultId, itemId, itemState),
+        ).then((value) =>
+          decryptItemApiResponse({
+            provider,
+            vaultKey: currentVaultKey,
+            value,
+          }),
+        );
+
+        if (!active) {
+          return;
+        }
+
         setItem(itemResponse.item);
         setLoadError(null);
         setIsLoading(false);
@@ -98,7 +123,17 @@ export function ItemDetailPage() {
     return () => {
       active = false;
     };
-  }, [itemId, itemState, reloadVersion, request, status, vaultId]);
+  }, [
+    getVaultKey,
+    itemId,
+    itemState,
+    provider,
+    reloadVersion,
+    request,
+    status,
+    unlockedVaultIds,
+    vaultId,
+  ]);
 
   const closeEditModal = useCallback(() => {
     setIsEditOpen(false);
@@ -107,6 +142,10 @@ export function ItemDetailPage() {
   const closeDeleteModal = useCallback(() => {
     setDeleteMode(null);
     setActionError(null);
+  }, []);
+
+  const handleVaultUpdated = useCallback((updatedVault: Vault) => {
+    setVault(updatedVault);
   }, []);
 
   const reloadItem = () => {
@@ -143,6 +182,15 @@ export function ItemDetailPage() {
     }
 
     try {
+      const currentVaultKey = vault ? getVaultKey(vault.id) : null;
+
+      if (!currentVaultKey) {
+        setActionError(
+          new Error("Unlock the vault before updating this item."),
+        );
+        return;
+      }
+
       const rawResponse = await request<unknown>(
         itemResourcePath(vaultId, itemId),
         {
@@ -153,7 +201,11 @@ export function ItemDetailPage() {
         },
       );
 
-      const response = parseItemResponse(rawResponse);
+      const response = await decryptItemApiResponse({
+        provider,
+        vaultKey: currentVaultKey,
+        value: rawResponse,
+      });
 
       setItem(response.item);
       setDeleteMode(null);
@@ -179,6 +231,15 @@ export function ItemDetailPage() {
     }
 
     try {
+      const currentVaultKey = vault ? getVaultKey(vault.id) : null;
+
+      if (!currentVaultKey) {
+        setActionError(
+          new Error("Unlock the vault before updating this item."),
+        );
+        return;
+      }
+
       const rawResponse = await request<unknown>(
         itemRestorePath(vaultId, itemId),
         {
@@ -189,7 +250,11 @@ export function ItemDetailPage() {
         },
       );
 
-      const response = parseItemResponse(rawResponse);
+      const response = await decryptItemApiResponse({
+        provider,
+        vaultKey: currentVaultKey,
+        value: rawResponse,
+      });
 
       setItem(response.item);
 
@@ -243,6 +308,7 @@ export function ItemDetailPage() {
   const vaultPath = vaultId
     ? `/vaults/${encodeURIComponent(vaultId)}`
     : "/vaults";
+  const vaultKey = vault ? getVaultKey(vault.id) : null;
 
   return (
     <section className="page-card vault-page">
@@ -329,6 +395,12 @@ export function ItemDetailPage() {
         </>
       ) : null}
 
+      {vault && !vaultKey && !item && !isLoading && !loadError ? (
+        <VaultCryptoGate vault={vault} onVaultUpdated={handleVaultUpdated}>
+          {() => <LoadingState message="Loading item..." />}
+        </VaultCryptoGate>
+      ) : null}
+
       {status === "authenticated" &&
       !loadError &&
       !isLoading &&
@@ -400,7 +472,7 @@ export function ItemDetailPage() {
                       setIsEditOpen(true);
                       setActionError(null);
                     }}
-                    disabled={isActioning}
+                    disabled={isActioning || !vaultKey}
                   >
                     Edit
                   </button>
@@ -449,9 +521,10 @@ export function ItemDetailPage() {
             ) : null}
           </div>
 
-          {isEditOpen ? (
+          {isEditOpen && vaultKey ? (
             <ItemEditModal
               vaultId={vault.id}
+              vaultKey={vaultKey}
               item={item}
               onClose={closeEditModal}
               onUpdated={(updatedItem) => {

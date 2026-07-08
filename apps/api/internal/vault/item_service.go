@@ -9,12 +9,13 @@ import (
 )
 
 type CreateItemInput struct {
-	OwnerID        string
-	VaultID        string
-	Type           ItemType
-	Payload        json.RawMessage
-	IdempotencyKey string
-	CorrelationID  string
+	OwnerID           string
+	VaultID           string
+	Type              ItemType
+	Payload           json.RawMessage
+	EncryptedEnvelope *EncryptedItemEnvelope
+	IdempotencyKey    string
+	CorrelationID     string
 }
 
 func (service *Service) CreateItem(
@@ -45,7 +46,10 @@ func (service *Service) CreateItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
-	envelope, err := NewSyntheticItemEnvelope(input.Payload)
+	envelope, err := newItemEnvelopeFromWriteInput(
+		input.Payload,
+		input.EncryptedEnvelope,
+	)
 	if err != nil {
 		return Item{}, err
 	}
@@ -77,7 +81,7 @@ func (service *Service) CreateItem(
 	if !validStoredItem(createdItem, input.VaultID, ItemListStateActive) ||
 		createdItem.Type != input.Type ||
 		createdItem.Version != 1 ||
-		!bytes.Equal(createdItem.Payload, envelope.Payload) {
+		!itemEnvelopesEqual(createdItem.Envelope(), envelope) {
 		return Item{}, fmt.Errorf("create vault item: %w", ErrItemUnavailable)
 	}
 
@@ -86,6 +90,21 @@ func (service *Service) CreateItem(
 
 func (service *Service) itemsAvailable() bool {
 	return service != nil && service.items != nil
+}
+
+func newItemEnvelopeFromWriteInput(
+	payload json.RawMessage,
+	encryptedEnvelope *EncryptedItemEnvelope,
+) (ItemEnvelope, error) {
+	if encryptedEnvelope != nil {
+		if len(bytes.TrimSpace(payload)) > 0 {
+			return ItemEnvelope{}, ErrItemPayloadInvalid
+		}
+
+		return NewItemEnvelopeFromEncrypted(*encryptedEnvelope)
+	}
+
+	return NewSyntheticItemEnvelope(payload)
 }
 
 func validStoredItem(
@@ -103,8 +122,7 @@ func validStoredItem(
 		return false
 	}
 
-	normalizedPayload, err := NormalizeSyntheticItemPayload(storedItem.Payload)
-	if err != nil || !bytes.Equal(normalizedPayload, storedItem.Payload) {
+	if !validStoredItemEnvelope(storedItem) {
 		return false
 	}
 
@@ -122,6 +140,21 @@ func validStoredItem(
 	default:
 		return false
 	}
+}
+
+func validStoredItemEnvelope(storedItem Item) bool {
+	if len(storedItem.Nonce) == 0 || IsSyntheticItemNonce(storedItem.Nonce) {
+		normalizedPayload, err := NormalizeSyntheticItemPayload(storedItem.Payload)
+		return err == nil && bytes.Equal(normalizedPayload, storedItem.Payload)
+	}
+
+	_, err := NewItemEnvelopeFromStorage(storedItem.Payload, storedItem.Nonce)
+	return err == nil
+}
+
+func itemEnvelopesEqual(left ItemEnvelope, right ItemEnvelope) bool {
+	return bytes.Equal(left.Payload, right.Payload) &&
+		bytes.Equal(left.Nonce, right.Nonce)
 }
 
 func mapItemOperationError(operation string, err error) error {

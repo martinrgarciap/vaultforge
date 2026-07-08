@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Browser, Page } from "@playwright/test";
+import type { Browser, Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
 interface Credentials {
@@ -240,11 +240,43 @@ async function deleteItem(page: Page): Promise<void> {
   ).toBeVisible();
 }
 
+async function setupOrUnlockVault(
+  page: Page,
+  passphrase: string,
+  readyLocator: Locator = page.getByRole("button", {
+    name: "Create Item",
+  }),
+): Promise<void> {
+  const setupButton = page.getByRole("button", {
+    name: "Set Up Vault Encryption",
+  });
+  const unlockButton = page.getByRole("button", {
+    name: "Unlock Vault",
+  });
+
+  await expect(page.getByLabel("Vault encryption")).toBeVisible();
+
+  if (await setupButton.isVisible()) {
+    await page.getByLabel("Vault passphrase").fill(passphrase);
+    await setupButton.click();
+    await expect(readyLocator).toBeVisible();
+
+    return;
+  }
+
+  if (await unlockButton.isVisible()) {
+    await page.getByLabel("Vault passphrase").fill(passphrase);
+    await unlockButton.click();
+    await expect(readyLocator).toBeVisible();
+  }
+}
+
 async function loginSecondBrowser(
   browser: Browser,
   origin: string,
   credentials: Credentials,
   itemURL: string,
+  vaultPassphrase: string,
   browserOutput: BrowserOutputCapture,
 ): Promise<{
   page: Page;
@@ -259,6 +291,13 @@ async function loginSecondBrowser(
   await login(page, credentials);
 
   await page.goto(itemURL);
+  await setupOrUnlockVault(
+    page,
+    vaultPassphrase,
+    page.getByRole("button", {
+      name: "Edit",
+    }),
+  );
 
   return {
     page,
@@ -287,6 +326,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
   };
 
   const vaultName = `E2E Vault ${runID}`;
+  const vaultPassphrase = `synthetic vault passphrase ${runID}`;
   const originalTitle = "E2E Login";
   const concurrentTitle = "Updated From Second Session";
   const syntheticItemPassword = "synthetic-password";
@@ -383,6 +423,8 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   const vaultURL = page.url();
 
+  await setupOrUnlockVault(page, vaultPassphrase);
+
   await page
     .getByRole("button", {
       name: "Create Item",
@@ -438,6 +480,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await expectNoSensitiveBrowserPersistence(page, [
     credentials.password,
+    vaultPassphrase,
     syntheticItemPassword,
   ]);
 
@@ -447,6 +490,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await expectNoSensitiveBrowserPersistence(page, [
     credentials.password,
+    vaultPassphrase,
     syntheticItemPassword,
   ]);
 
@@ -466,6 +510,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await expectNoSensitiveBrowserPersistence(page, [
     credentials.password,
+    vaultPassphrase,
     syntheticItemPassword,
   ]);
 
@@ -482,6 +527,13 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
   // The access token is memory-only. Reloading must
   // restore authentication through the refresh cookie.
   await page.reload();
+  await setupOrUnlockVault(
+    page,
+    vaultPassphrase,
+    page.getByRole("heading", {
+      name: originalTitle,
+    }),
+  );
 
   await expect(
     page.getByRole("heading", {
@@ -493,6 +545,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await expectNoSensitiveBrowserPersistence(page, [
     credentials.password,
+    vaultPassphrase,
     syntheticItemPassword,
   ]);
 
@@ -501,6 +554,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     origin,
     credentials,
     itemURL,
+    vaultPassphrase,
     browserOutput,
   );
 
@@ -664,6 +718,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
     expectNoSensitiveBrowserOutput(browserOutput, [
       credentials.password,
+      vaultPassphrase,
       syntheticItemPassword,
     ]);
   } finally {

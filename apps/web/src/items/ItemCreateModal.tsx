@@ -4,8 +4,10 @@ import { useRef, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
 import { Modal } from "../components/Modal";
+import { useCrypto } from "../crypto/useCrypto";
 import type { ItemType, VaultItem } from "./contracts";
-import { parseItemResponse } from "./contracts";
+import { decryptItemApiResponse } from "./itemApiCrypto";
+import { encryptItemWriteRequest } from "./itemEncryption";
 import { ItemPayloadFields } from "./ItemPayloadFields";
 import { createItemIdempotencyKey, itemCreatePath } from "./request";
 import {
@@ -17,16 +19,19 @@ import {
 
 interface ItemCreateModalProps {
   vaultId: string;
+  vaultKey: Uint8Array;
   onClose: () => void;
   onCreated: (item: VaultItem) => void;
 }
 
 export function ItemCreateModal({
   vaultId,
+  vaultKey,
   onClose,
   onCreated,
 }: ItemCreateModalProps) {
   const { request } = useAuth();
+  const { provider } = useCrypto();
   const submissionRef = useRef(false);
 
   const [itemType, setItemType] = useState<ItemType>("secure_note");
@@ -57,18 +62,26 @@ export function ItemCreateModal({
     setIsCreating(true);
 
     try {
+      const encryptedRequest = await encryptItemWriteRequest({
+        provider,
+        vaultKey,
+        type: itemType,
+        payload: parsedPayload.payload,
+      });
+
       const rawResponse = await request<unknown>(itemCreatePath(vaultId), {
         method: "POST",
         headers: {
           "Idempotency-Key": createItemIdempotencyKey(),
         },
-        json: {
-          type: itemType,
-          payload: parsedPayload.payload,
-        },
+        json: encryptedRequest,
       });
 
-      const response = parseItemResponse(rawResponse);
+      const response = await decryptItemApiResponse({
+        provider,
+        vaultKey,
+        value: rawResponse,
+      });
 
       onCreated(response.item);
       onClose();

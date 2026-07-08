@@ -44,6 +44,8 @@ type Vault struct {
 	Name          string
 	CryptoVersion *int16
 	KDFVersion    *int16
+	Salt          []byte
+	WrappedKey    []byte
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -194,15 +196,30 @@ func validStoredVault(
 		return false
 	}
 
-	if storedVault.CryptoVersion == nil &&
-		storedVault.KDFVersion == nil {
+	hasVersions := storedVault.CryptoVersion != nil ||
+		storedVault.KDFVersion != nil
+	hasBytes := len(storedVault.Salt) > 0 ||
+		len(storedVault.WrappedKey) > 0
+
+	if !hasVersions && !hasBytes {
 		return true
 	}
 
-	return storedVault.CryptoVersion != nil &&
-		storedVault.KDFVersion != nil &&
-		*storedVault.CryptoVersion > 0 &&
-		*storedVault.KDFVersion > 0
+	if storedVault.CryptoVersion == nil ||
+		storedVault.KDFVersion == nil {
+		return false
+	}
+
+	err = validateVaultCryptoMetadata(
+		VaultCryptoMetadata{
+			CryptoVersion: *storedVault.CryptoVersion,
+			KDFVersion:    *storedVault.KDFVersion,
+			Salt:          storedVault.Salt,
+			WrappedKey:    storedVault.WrappedKey,
+		},
+	)
+
+	return err == nil
 }
 
 func validIdentifier(value string) bool {
@@ -224,6 +241,11 @@ func mapVaultOperationError(
 		ErrVaultNotFound,
 	):
 		return ErrVaultNotFound
+	case errors.Is(
+		err,
+		ErrVaultCryptoMetadataAlreadyInitialized,
+	):
+		return ErrVaultCryptoMetadataAlreadyInitialized
 
 	case errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):

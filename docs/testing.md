@@ -194,9 +194,10 @@ The workflow verifies:
 - Clipboard copy feedback without browser-persistence or URL leakage
 - Absence of synthetic passwords in browser console messages and page errors
 - `HttpOnly` refresh-cookie behavior
-- Authentication restoration after reload
 - Vault creation
-- Item creation and editing
+- Browser-side vault encryption setup and unlock
+- Encrypted item creation and editing
+- Authentication restoration after reload, followed by vault unlock because the vault key remains browser-memory-only
 - A real stale-version conflict between browser sessions
 - Soft deletion
 - Restoration
@@ -228,6 +229,9 @@ Automated tests include regression coverage for:
 - Raw route, SQL, Redis, token, cookie, or resource-identifier leakage into spans
 - PostgreSQL and Redis failures
 - Concurrent rate-limit enforcement
+- Browser-side encrypted item request/response handling
+- Vault passphrase and unwrapped vault-key browser persistence checks
+- Backend ciphertext-only item response and audit-payload regression tests
 - Clipboard clearing success, failure, replacement, and cleanup behavior
 - Temporary copy confirmation and timed reveal behavior
 - Inactivity and hidden-tab sensitive-value resets

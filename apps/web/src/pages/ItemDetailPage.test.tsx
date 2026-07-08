@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   fireEvent,
   render,
@@ -12,7 +13,21 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue } from "../auth/types";
+import type { CryptoProvider } from "../crypto/CryptoProvider";
+import { CryptoContext } from "../crypto/CryptoContext";
+import {
+  CRYPTO_ENVELOPE_VERSION,
+  type ItemCryptoEnvelope,
+  type WrappedKeyEnvelope,
+} from "../crypto/cryptoTypes";
+import { bytesToBase64 } from "../crypto/encoding";
+import {
+  itemEncryptedPayloadAlgorithm,
+  minimumItemEncryptedPayloadBlobBytes,
+} from "../items/encryptedPayload";
+import { encodeItemPlaintext } from "../items/itemEncryption";
 import { PrivacyProvider } from "../privacy/PrivacyProvider";
+import { VaultUnlockContext } from "../vaults/VaultUnlockContext";
 import { ItemDetailPage } from "./ItemDetailPage";
 
 const vault = {
@@ -47,6 +62,8 @@ type RequestImplementation = (
   options?: ApiRequestOptions,
 ) => Promise<unknown>;
 
+const testVaultKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+
 const writeTextMock = vi.fn();
 
 beforeEach(() => {
@@ -60,6 +77,77 @@ beforeEach(() => {
     },
   });
 });
+
+function validEncryptedBlob(): Uint8Array {
+  return Uint8Array.from(
+    { length: minimumItemEncryptedPayloadBlobBytes + 4 },
+    (_, index) => index + 2,
+  );
+}
+
+function createTestItemEnvelope(): ItemCryptoEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: validEncryptedBlob(),
+  };
+}
+
+function createTestWrappedKeyEnvelope(): WrappedKeyEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    wrappedKey: validEncryptedBlob(),
+  };
+}
+
+function createTestCryptoProvider(): CryptoProvider {
+  return {
+    initialize: vi.fn(async () => undefined),
+    generateVaultKey: vi.fn(async () => new Uint8Array(32)),
+    deriveKey: vi.fn(async () => new Uint8Array(32)),
+    encryptItem: vi.fn(
+      async (): Promise<ItemCryptoEnvelope> => createTestItemEnvelope(),
+    ),
+    decryptItem: vi.fn(async () =>
+      encodeItemPlaintext({
+        title: "Encrypted Test Login",
+        username: "encrypted@example.com",
+        password: "synthetic-password",
+      }),
+    ),
+    wrapKey: vi.fn(
+      async (): Promise<WrappedKeyEnvelope> => createTestWrappedKeyEnvelope(),
+    ),
+    unwrapKey: vi.fn(async () => new Uint8Array(32)),
+  };
+}
+
+function TestCryptoProviders({ children }: { children: ReactNode }) {
+  return (
+    <CryptoContext.Provider
+      value={{
+        provider: createTestCryptoProvider(),
+        status: "ready",
+        error: null,
+      }}
+    >
+      <VaultUnlockContext.Provider
+        value={{
+          unlockedVaultIds: ["vault-123"],
+          createUnlockedVaultSession: async () => new Uint8Array(testVaultKey),
+          getVaultKey: () => new Uint8Array(testVaultKey),
+          isVaultUnlocked: () => true,
+          lockVault: vi.fn(),
+          lockAllVaults: vi.fn(),
+          unlockVaultWithKey: vi.fn(),
+        }}
+      >
+        {children}
+      </VaultUnlockContext.Provider>
+    </CryptoContext.Provider>
+  );
+}
 
 function renderItemPage(
   requestImplementation: RequestImplementation,
@@ -82,17 +170,19 @@ function renderItemPage(
     <MemoryRouter initialEntries={[initialPath]}>
       <AuthContext.Provider value={authValue}>
         <PrivacyProvider>
-          <Routes>
-            <Route
-              path="/vaults/:vaultId/items/:itemId"
-              element={<ItemDetailPage />}
-            />
+          <TestCryptoProviders>
+            <Routes>
+              <Route
+                path="/vaults/:vaultId/items/:itemId"
+                element={<ItemDetailPage />}
+              />
 
-            <Route
-              path="/vaults/:vaultId"
-              element={<h1>Vault destination</h1>}
-            />
-          </Routes>
+              <Route
+                path="/vaults/:vaultId"
+                element={<h1>Vault destination</h1>}
+              />
+            </Routes>
+          </TestCryptoProviders>
         </PrivacyProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
@@ -154,6 +244,43 @@ describe("ItemDetailPage", () => {
     await waitFor(() => {
       expect(writeTextMock).toHaveBeenCalledWith("demo-user");
     });
+  });
+
+  it("decrypts an encrypted item detail response", async () => {
+    const encryptedItem = {
+      id: "item-123",
+      type: "login",
+      encryptedPayload: {
+        version: CRYPTO_ENVELOPE_VERSION,
+        algorithm: itemEncryptedPayloadAlgorithm,
+        blob: bytesToBase64(validEncryptedBlob()),
+      },
+      version: 1,
+      createdAt: "2026-07-08T12:00:00Z",
+      updatedAt: "2026-07-08T12:00:00Z",
+    };
+
+    const requestMock = vi.fn(async (path: string) => {
+      if (path === "/v1/vaults/vault-123") {
+        return {
+          vault,
+        };
+      }
+
+      return {
+        item: encryptedItem,
+      };
+    });
+
+    renderItemPage(requestMock);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Encrypted Test Login",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByText("encrypted@example.com")).toBeInTheDocument();
   });
 
   it("updates an item through a modal with If-Match", async () => {
@@ -233,6 +360,19 @@ describe("ItemDetailPage", () => {
     expect(updateCall).toBeDefined();
 
     expect(updateCall![0]).toBe("/v1/vaults/vault-123/items/item-123");
+
+    expect(updateCall![1]?.json).toEqual({
+      type: "login",
+      encryptedPayload: {
+        version: CRYPTO_ENVELOPE_VERSION,
+        algorithm: itemEncryptedPayloadAlgorithm,
+        blob: bytesToBase64(validEncryptedBlob()),
+      },
+    });
+
+    expect("payload" in (updateCall![1]?.json as Record<string, unknown>)).toBe(
+      false,
+    );
 
     expect(new Headers(updateCall![1]?.headers).get("If-Match")).toBe('"2"');
   });

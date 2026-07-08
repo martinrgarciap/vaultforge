@@ -12,7 +12,19 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue } from "../auth/types";
+import type { CryptoProvider } from "../crypto/CryptoProvider";
+import { CryptoContext } from "../crypto/CryptoContext";
+import {
+  CRYPTO_ENVELOPE_VERSION,
+  type ItemCryptoEnvelope,
+  type WrappedKeyEnvelope,
+} from "../crypto/cryptoTypes";
+import { bytesToBase64 } from "../crypto/encoding";
 import { PrivacyProvider } from "../privacy/PrivacyProvider";
+import {
+  itemEncryptedPayloadAlgorithm,
+  minimumItemEncryptedPayloadBlobBytes,
+} from "./encryptedPayload";
 import { ItemWorkspace } from "./ItemWorkspace";
 
 const loginItem = {
@@ -46,6 +58,8 @@ type RequestImplementation = (
   options?: ApiRequestOptions,
 ) => Promise<unknown>;
 
+const testVaultKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+
 const writeTextMock = vi.fn();
 
 beforeEach(() => {
@@ -71,6 +85,45 @@ function LocationResult() {
   );
 }
 
+function validEncryptedBlob(): Uint8Array {
+  return Uint8Array.from(
+    { length: minimumItemEncryptedPayloadBlobBytes + 4 },
+    (_, index) => index + 2,
+  );
+}
+
+function createTestItemEnvelope(): ItemCryptoEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: validEncryptedBlob(),
+  };
+}
+
+function createTestWrappedKeyEnvelope(): WrappedKeyEnvelope {
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    wrappedKey: validEncryptedBlob(),
+  };
+}
+
+function createTestCryptoProvider(): CryptoProvider {
+  return {
+    initialize: vi.fn(async () => undefined),
+    generateVaultKey: vi.fn(async () => new Uint8Array(32)),
+    deriveKey: vi.fn(async () => new Uint8Array(32)),
+    encryptItem: vi.fn(
+      async (): Promise<ItemCryptoEnvelope> => createTestItemEnvelope(),
+    ),
+    decryptItem: vi.fn(async () => new Uint8Array()),
+    wrapKey: vi.fn(
+      async (): Promise<WrappedKeyEnvelope> => createTestWrappedKeyEnvelope(),
+    ),
+    unwrapKey: vi.fn(async () => new Uint8Array(32)),
+  };
+}
+
 function renderWorkspace(requestImplementation: RequestImplementation) {
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -92,7 +145,17 @@ function renderWorkspace(requestImplementation: RequestImplementation) {
           <Routes>
             <Route
               path="/vaults/:vaultId"
-              element={<ItemWorkspace vaultId="vault-123" />}
+              element={
+                <CryptoContext.Provider
+                  value={{
+                    provider: createTestCryptoProvider(),
+                    status: "ready",
+                    error: null,
+                  }}
+                >
+                  <ItemWorkspace vaultId="vault-123" vaultKey={testVaultKey} />
+                </CryptoContext.Provider>
+              }
             />
 
             <Route
@@ -408,12 +471,16 @@ describe("ItemWorkspace", () => {
 
     expect(createCall![1]?.json).toEqual({
       type: "api_key",
-      payload: {
-        name: "Created Key",
-        service: "Development Service",
-        apiKey: "synthetic-value",
+      encryptedPayload: {
+        version: CRYPTO_ENVELOPE_VERSION,
+        algorithm: itemEncryptedPayloadAlgorithm,
+        blob: bytesToBase64(validEncryptedBlob()),
       },
     });
+
+    expect("payload" in (createCall![1]?.json as Record<string, unknown>)).toBe(
+      false,
+    );
 
     expect(new Headers(createCall![1]?.headers).get("Idempotency-Key")).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,

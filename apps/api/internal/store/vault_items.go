@@ -281,17 +281,17 @@ func scanSyntheticItemRow(row itemRowScanner) (vaultdomain.Item, error) {
 		return vaultdomain.Item{}, fmt.Errorf("scan vault item type: %w", err)
 	}
 
-	payload, err := vaultdomain.NormalizeSyntheticItemPayload(encryptedPayload)
+	envelope, err := vaultdomain.NewItemEnvelopeFromStorage(
+		encryptedPayload,
+		nonce,
+	)
 	if err != nil {
 		return vaultdomain.Item{}, fmt.Errorf("scan vault item payload: %w", err)
 	}
 
-	if !vaultdomain.IsSyntheticItemNonce(nonce) {
-		return vaultdomain.Item{}, errors.New("vault item nonce is not synthetic")
-	}
-
 	storedItem.Type = itemType
-	storedItem.Payload = payload
+	storedItem.Payload = envelope.Payload
+	storedItem.Nonce = envelope.Nonce
 
 	if deletedAt.Valid {
 		value := deletedAt.Time

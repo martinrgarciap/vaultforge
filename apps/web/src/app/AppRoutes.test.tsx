@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -6,7 +7,15 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/ApiError";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue, AuthStatus } from "../auth/types";
+import type { CryptoProvider } from "../crypto/CryptoProvider";
+import { CryptoContext } from "../crypto/CryptoContext";
+import {
+  CRYPTO_ENVELOPE_VERSION,
+  type ItemCryptoEnvelope,
+  type WrappedKeyEnvelope,
+} from "../crypto/cryptoTypes";
 import { PrivacyProvider } from "../privacy/PrivacyProvider";
+import { VaultUnlockContext } from "../vaults/VaultUnlockContext";
 import { AppRoutes } from "./AppRoutes";
 
 function createAuthValue(
@@ -27,6 +36,57 @@ function createAuthValue(
   };
 }
 
+const testVaultKey = new Uint8Array(32);
+
+function createTestCryptoProvider(): CryptoProvider {
+  const itemEnvelope: ItemCryptoEnvelope = {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: "AES-256-GCM",
+    blob: new Uint8Array(28),
+  };
+  const wrappedKeyEnvelope: WrappedKeyEnvelope = {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: "AES-256-GCM",
+    wrappedKey: new Uint8Array(60),
+  };
+
+  return {
+    initialize: vi.fn(async () => undefined),
+    generateVaultKey: vi.fn(async () => new Uint8Array(32)),
+    deriveKey: vi.fn(async () => new Uint8Array(32)),
+    encryptItem: vi.fn(async () => itemEnvelope),
+    decryptItem: vi.fn(async () => new Uint8Array()),
+    wrapKey: vi.fn(async () => wrappedKeyEnvelope),
+    unwrapKey: vi.fn(async () => new Uint8Array(32)),
+  };
+}
+
+function TestCryptoProviders({ children }: { children: ReactNode }) {
+  return (
+    <CryptoContext.Provider
+      value={{
+        provider: createTestCryptoProvider(),
+        status: "ready",
+        error: null,
+      }}
+    >
+      <VaultUnlockContext.Provider
+        value={{
+          unlockedVaultIds: ["vault-123"],
+          createUnlockedVaultSession: async () => new Uint8Array(testVaultKey),
+          getVaultKey: () => new Uint8Array(testVaultKey),
+          isVaultUnlocked: () => true,
+          lockVault: vi.fn(),
+          lockAllVaults: vi.fn(),
+          unlockVaultWithKey: vi.fn(),
+        }}
+      >
+        {children}
+      </VaultUnlockContext.Provider>
+    </CryptoContext.Provider>
+  );
+}
+
 function renderRoute(
   path: string,
   authOverrides: Partial<AuthContextValue> = {},
@@ -35,7 +95,9 @@ function renderRoute(
     <MemoryRouter initialEntries={[path]}>
       <AuthContext.Provider value={createAuthValue(authOverrides)}>
         <PrivacyProvider>
-          <AppRoutes />
+          <TestCryptoProviders>
+            <AppRoutes />
+          </TestCryptoProviders>
         </PrivacyProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
@@ -263,7 +325,9 @@ describe("AppRoutes", () => {
       return (
         <AuthContext.Provider value={value}>
           <PrivacyProvider>
-            <AppRoutes />
+            <TestCryptoProviders>
+              <AppRoutes />
+            </TestCryptoProviders>
           </PrivacyProvider>
         </AuthContext.Provider>
       );

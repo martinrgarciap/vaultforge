@@ -242,7 +242,7 @@ Optional trace export
 - Propagates context cancellation through services and repositories.
 - Maps PostgreSQL, Redis, and password-hasher failures to safe public responses.
 - Logs safe request metadata only.
-- Accepts only synthetic item payloads until browser-side encryption is implemented.
+- Accepts encrypted item payload envelopes for normal browser item workflows.
 
 ### Local Argon2id adapter
 
@@ -310,7 +310,7 @@ Currently stores:
 
 PostgreSQL never stores plaintext account passwords, raw refresh tokens, access tokens, vault passphrases, unwrapped encryption keys, or real vault secrets.
 
-The current synthetic item payload is intentionally temporary. A future browser-side encryption phase will replace it with an opaque encrypted envelope.
+The current item payload contract uses opaque encrypted envelopes. Browser-side code owns plaintext serialization, encryption, and decryption.
 
 ### Redis
 
@@ -576,7 +576,7 @@ Current responsibilities:
 - List active sessions and support targeted, current-device, and all-session revocation.
 - Provide loading, empty, retryable error, not-found, unauthorized, and authentication-restoration states.
 - Avoid persistent browser storage for access tokens or secret-bearing values.
-- Use synthetic item payloads until browser-side encryption is implemented.
+- Encrypt and decrypt item payloads in the browser for normal item workflows.
 
 Current testing responsibilities:
 
@@ -585,7 +585,7 @@ Current testing responsibilities:
 - Run axe accessibility scans.
 - Check phone, tablet, and desktop layouts for horizontal overflow.
 
-Future browser-encryption responsibilities:
+Current browser-encryption responsibilities:
 
 - Collect the separate vault master passphrase during vault unlock.
 - Derive and unwrap vault encryption keys through Rust WebAssembly.
@@ -596,7 +596,7 @@ Future browser-encryption responsibilities:
 
 ### Go API
 
-Current and planned responsibilities:
+Current responsibilities:
 
 - Expose REST and JSON routes.
 - Manage users, sessions, authorization, vault metadata, and encrypted payloads.
@@ -609,7 +609,7 @@ Current and planned responsibilities:
 
 ### Rust hashing service
 
-Planned responsibilities:
+Current responsibilities:
 
 - Implement the existing `PasswordHasher` contract over gRPC.
 - Hash and verify account passwords with Argon2id.
@@ -621,7 +621,7 @@ Planned responsibilities:
 
 ### Rust WebAssembly module
 
-Planned responsibilities:
+Current responsibilities:
 
 - Derive a key-encryption key from the vault master passphrase.
 - Generate a random vault data-encryption key.
@@ -734,8 +734,4 @@ Completed:
 - Operational runbook for current dependencies and tracing
 - Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
-Next:
-
-- Build and integrate the Rust gRPC password-hashing service.
-
-Later core phases add browser-side encryption, ciphertext-only persistence, production deployment, and release documentation. RabbitMQ publication and an audit worker remain an optional end-of-project extension.
+Later core phases add production deployment and release documentation. RabbitMQ publication and an audit worker remain an optional end-of-project extension.

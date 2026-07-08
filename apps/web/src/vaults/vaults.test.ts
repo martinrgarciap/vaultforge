@@ -15,19 +15,31 @@ const vaultResource = {
 };
 
 describe("vault response contracts", () => {
-  it("parses a vault response with optional versions", () => {
+  it("parses a vault response without crypto metadata", () => {
+    const response = parseVaultResponse({
+      vault: vaultResource,
+    });
+
+    expect(response.vault).toEqual(vaultResource);
+  });
+
+  it("parses a vault response with crypto metadata", () => {
     const response = parseVaultResponse({
       vault: {
         ...vaultResource,
         cryptoVersion: 1,
-        kdfVersion: 2,
+        kdfVersion: 1,
+        salt: "c2FsdA==",
+        wrappedKey: "d3JhcHBlZA==",
       },
     });
 
     expect(response.vault).toEqual({
       ...vaultResource,
       cryptoVersion: 1,
-      kdfVersion: 2,
+      kdfVersion: 1,
+      salt: "c2FsdA==",
+      wrappedKey: "d3JhcHBlZA==",
     });
   });
 
@@ -57,6 +69,17 @@ describe("vault response contracts", () => {
         vault: {
           ...vaultResource,
           cryptoVersion: "one",
+        },
+      }),
+    ).toThrow(ApiError);
+  });
+
+  it("rejects partial crypto metadata", () => {
+    expect(() =>
+      parseVaultResponse({
+        vault: {
+          ...vaultResource,
+          cryptoVersion: 1,
         },
       }),
     ).toThrow(ApiError);

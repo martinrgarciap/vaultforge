@@ -62,7 +62,7 @@ login, but it must never receive:
 - The unwrapped vault data-encryption key
 - Decrypted vault item contents
 
-Only synthetic secrets may be used until client-side encryption is complete.
+Only synthetic secrets may be used until VaultForge has received an independent security review.
 
 ## Non-goals
 
