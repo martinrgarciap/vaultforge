@@ -1,31 +1,37 @@
 # VaultForge
 
-VaultForge is a backend-first developer secrets vault built to demonstrate secure API design, authentication, PostgreSQL engineering, browser-safe session handling, frontend architecture, distributed systems, and browser-side cryptography.
+VaultForge is a synthetic-data-only developer secrets vault built to practice secure backend and browser-side encryption architecture.
 
-The project is designed for an individual developer storing API keys, environment variables, database connection details, login records, and secure notes.
+It combines a Go API, React and TypeScript frontend, PostgreSQL, Redis, Rust gRPC Argon2id password hashing, Rust WebAssembly browser-side encryption, ciphertext-only item storage, OpenTelemetry tracing, full-stack tests, and Railway/Vercel deployment.
 
-> VaultForge is a portfolio and learning project, not an audited password manager. Use synthetic data only.
+The project is designed for an individual developer storing synthetic API keys, environment variables, database connection details, login records, and secure notes.
+
+> VaultForge is a portfolio and learning project, not an audited password manager. It must not be used for real credentials or production secrets.
 
 ## Architecture
 
 VaultForge separates account authentication from vault encryption.
 
-### Current platform
+### Implemented platform
 
 ```mermaid
-graph LR
-    B["React and TypeScript Client"] --> A["Go REST API"]
-    A --> P["PostgreSQL"]
-    A --> R["Redis"]
-    B --> W["Rust WASM Crypto"]
-    W -. "encrypted envelopes" .-> A
-    A --> H["Rust gRPC Hashing Service"]
-    A --> O["OpenTelemetry"]
+flowchart LR
+    Browser["Browser<br/>React + TypeScript"] --> Wasm["Rust WASM crypto<br/>key derivation + AES-GCM"]
+    Wasm --> Browser
+    Browser --> API["Go REST API<br/>auth, vaults, items, sessions"]
+    API --> Postgres["PostgreSQL<br/>users, sessions, vault metadata,<br/>ciphertext item envelopes"]
+    API --> Redis["Redis<br/>rate limits + lockouts"]
+    API --> Hash["Rust gRPC hash-service<br/>Argon2id Hash/Verify"]
+    API --> Telemetry["OpenTelemetry<br/>local Collector + Jaeger"]
+    Browser -. "decrypted item values stay in browser memory" .-> Browser
+    API -. "never receives vault passphrase,<br/>unwrapped vault key, or decrypted item values" .-> API
 ```
+
+Account authentication and vault encryption are separate. The Go API authenticates users, manages sessions, enforces owner-scoped access, and stores encrypted item envelopes. The Rust hash-service handles account-password hashing over gRPC. The browser uses the Rust WASM crypto module to derive vault keys, wrap and unwrap vault keys, and encrypt or decrypt vault item payloads before they cross the API boundary.
 
 The current React client exercises the complete user-facing authentication, session, vault, and item workflows through relative API URLs. Vite proxies `/v1` and `/health` to the Go API during development.
 
-Sensitive values are masked by default and automatically re-mask 15 seconds after being revealed. Copying provides temporary check-icon feedback, a visible confirmation message, and an accessible status announcement. When browser support allows it, VaultForge attempts to clear copied values after 30 seconds without overwriting newer clipboard contents. Revealed values are also hidden after five minutes of inactivity or when the browser tab becomes hidden. These are privacy safeguards only and do not cryptographically lock or encrypt the vault.
+Sensitive values are masked by default and automatically re-mask 15 seconds after being revealed. Copying provides temporary check-icon feedback, a visible confirmation message, and an accessible status announcement. When browser support allows it, VaultForge attempts to clear copied values after 30 seconds without overwriting newer clipboard contents. Unlocked vault keys are kept in browser memory only and are cleared when the user locks the vault, authentication is lost, the tab becomes hidden, or the inactivity timer expires.
 
 The current Go API provides:
 
@@ -47,7 +53,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module encrypts and decrypts item values in the browser for normal create, edit, list, and detail workflows. Application container images, Kubernetes, and production deployment remain planned work.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module encrypts and decrypts item values in the browser for normal create, edit, list, and detail workflows. The public demo runs on Railway and Vercel. Docker Compose is used for local PostgreSQL, Redis, OpenTelemetry Collector, and Jaeger.
 
 ### Account authentication
 
@@ -153,7 +159,7 @@ Vault item values are encrypted and decrypted in the browser before normal creat
 - **Rust:** Tonic gRPC Argon2id hashing service and WebAssembly browser-side crypto module
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
-- **Planned:** Kubernetes, optional RabbitMQ workflows
+- **Deployment:** Railway backend services, Vercel frontend, Docker Compose for local PostgreSQL/Redis/observability
 
 ## Repository structure
 

@@ -522,34 +522,29 @@ Item collection pagination uses an opaque URL-safe cursor backed by `updated_at 
 
 Outbox payloads contain only allow-listed versioned metadata. They never include item payloads, vault names, keys, hashes, or other secret-bearing values.
 
-## Target architecture
+## Implemented v1 architecture
 
 ```mermaid
-flowchart LR
-    U[Individual Developer]
-    B[React and TypeScript Browser]
-    W[Rust WASM Crypto Module]
-    A[Go REST API]
-    H[Rust gRPC Hashing Service]
-    P[(PostgreSQL)]
-    R[(Redis)]
-    Q[RabbitMQ]
-    K[Audit Worker]
-    O[OpenTelemetry Collector]
+flowchart TD
+    Browser["Browser<br/>React + TypeScript"] --> Crypto["Rust WASM crypto package<br/>derive KEK, wrap/unwrap vault key,<br/>encrypt/decrypt item payloads"]
+    Crypto --> Browser
 
-    U --> B
-    B --> W
-    B -->|REST and JSON| A
-    W -->|Ciphertext only| A
-    A -->|Hash and Verify over gRPC| H
-    A --> P
-    A --> R
-    A -. optional later .-> Q
-    Q -. optional later .-> K
-    A --> O
-    H --> O
-    K --> O
+    Browser --> API["Go REST API<br/>Chi, middleware, auth, vault/item domain"]
+
+    API --> Postgres["PostgreSQL<br/>users, sessions, vaults,<br/>encrypted item envelopes,<br/>versions, idempotency, audit metadata"]
+
+    API --> Redis["Redis<br/>rate limits, failed-login counters,<br/>temporary lockouts"]
+
+    API --> HashService["Rust gRPC hash-service<br/>Argon2id password hash/verify"]
+
+    API --> OTEL["OpenTelemetry instrumentation<br/>local Collector + Jaeger"]
+
+    Browser -. "vault passphrase, unwrapped vault key,<br/>and decrypted item values remain browser-side" .-> Browser
+
+    API -. "stores ciphertext and metadata only<br/>for item payloads" .-> Postgres
 ```
+
+RabbitMQ and audit-worker messaging are out of scope for VaultForge v1. The existing PostgreSQL transactional outbox preserves sanitized audit intent, but no broker or worker is required for the implemented account, vault, encryption, or deployment workflows.
 
 ## Target component boundaries
 
@@ -643,15 +638,13 @@ Redis is not used for durable item idempotency because PostgreSQL already provid
 
 Future Redis use must remain limited to bounded operational metadata. Redis must never store passwords, raw tokens, encryption keys, vault payloads, decrypted data, or raw dependency errors.
 
-### RabbitMQ and audit worker
+### Messaging scope
 
-Optional later responsibilities:
+RabbitMQ and audit-worker messaging are out of scope for VaultForge v1.
 
-- Publish sanitized events from a transactional outbox.
-- Process events idempotently.
-- Retry transient failures.
-- Route poison messages to a dead-letter queue.
-- Never place secret content in messages.
+The implemented application writes sanitized transactional audit intent records in PostgreSQL, but no message broker or background audit worker is required for the account, vault, browser encryption, item lifecycle, or deployment workflows.
+
+If messaging is added in a future project, messages must remain metadata-only and must never contain passwords, tokens, vault passphrases, encryption keys, decrypted vault data, item payloads, or raw dependency errors.
 
 ## Account authentication versus vault encryption
 
@@ -676,7 +669,7 @@ apps/api                Go HTTP API
 apps/web                React and TypeScript browser client
 services/hash-service   Rust gRPC Argon2id account-password hashing service
 packages/proto          Planned shared Protocol Buffer contracts
-deployments             Compose, local OpenTelemetry, and later Kubernetes configuration
+deployments             Compose, local PostgreSQL, Redis, OpenTelemetry, and Jaeger configuration
 docs                    Architecture, threat model, testing policy, and runbooks
 ```
 
@@ -734,4 +727,4 @@ Completed:
 - Operational runbook for current dependencies and tracing
 - Go, web, browser E2E, and secret-scan GitHub Actions jobs
 
-Later core phases add production deployment and release documentation. RabbitMQ publication and an audit worker remain an optional end-of-project extension.
+The implemented v1 portfolio version uses Railway and Vercel for the public demo, Docker Compose for local dependencies, and no RabbitMQ or audit worker.
