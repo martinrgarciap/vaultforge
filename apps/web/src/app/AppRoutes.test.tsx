@@ -14,6 +14,12 @@ import {
   type ItemCryptoEnvelope,
   type WrappedKeyEnvelope,
 } from "../crypto/cryptoTypes";
+import { bytesToBase64 } from "../crypto/encoding";
+import {
+  itemEncryptedPayloadAlgorithm,
+  minimumItemEncryptedPayloadBlobBytes,
+} from "../items/encryptedPayload";
+import { encodeItemPlaintext } from "../items/itemEncryption";
 import { PrivacyProvider } from "../privacy/PrivacyProvider";
 import { VaultUnlockContext } from "../vaults/VaultUnlockContext";
 import { AppRoutes } from "./AppRoutes";
@@ -38,11 +44,40 @@ function createAuthValue(
 
 const testVaultKey = new Uint8Array(32);
 
+function validEncryptedBlob(): Uint8Array {
+  const blob = new Uint8Array(minimumItemEncryptedPayloadBlobBytes);
+
+  for (let index = 0; index < blob.length; index += 1) {
+    blob[index] = index + 1;
+  }
+
+  return blob;
+}
+
+function encryptedPayloadForPayload(payload: Record<string, unknown>) {
+  const plaintext = encodeItemPlaintext(payload);
+  const prefix = validEncryptedBlob();
+  const blob = new Uint8Array(prefix.length + plaintext.length);
+
+  blob.set(prefix);
+  blob.set(plaintext, prefix.length);
+
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: bytesToBase64(blob),
+  };
+}
+
+function decryptTestEnvelope(envelope: ItemCryptoEnvelope): Uint8Array {
+  return envelope.blob.slice(validEncryptedBlob().length);
+}
+
 function createTestCryptoProvider(): CryptoProvider {
   const itemEnvelope: ItemCryptoEnvelope = {
     version: CRYPTO_ENVELOPE_VERSION,
-    algorithm: "AES-256-GCM",
-    blob: new Uint8Array(28),
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: validEncryptedBlob(),
   };
   const wrappedKeyEnvelope: WrappedKeyEnvelope = {
     version: CRYPTO_ENVELOPE_VERSION,
@@ -55,7 +90,9 @@ function createTestCryptoProvider(): CryptoProvider {
     generateVaultKey: vi.fn(async () => new Uint8Array(32)),
     deriveKey: vi.fn(async () => new Uint8Array(32)),
     encryptItem: vi.fn(async () => itemEnvelope),
-    decryptItem: vi.fn(async () => new Uint8Array()),
+    decryptItem: vi.fn(async (_vaultKey, envelope) =>
+      decryptTestEnvelope(envelope),
+    ),
     wrapKey: vi.fn(async () => wrappedKeyEnvelope),
     unwrapKey: vi.fn(async () => new Uint8Array(32)),
   };
@@ -249,10 +286,10 @@ describe("AppRoutes", () => {
         item: {
           id: "item-123",
           type: "secure_note",
-          payload: {
+          encryptedPayload: encryptedPayloadForPayload({
             title: "Synthetic Note",
             note: "Synthetic content.",
-          },
+          }),
           version: 1,
           createdAt: "2026-06-22T12:00:00Z",
           updatedAt: "2026-06-22T12:00:00Z",
@@ -363,7 +400,7 @@ describe("AppRoutes", () => {
 
     expect(
       screen.getByText(
-        "Use synthetic data only. Browser-side encryption is not implemented. Revealed values are hidden after inactivity or when the tab is hidden.",
+        "Use synthetic data only. Vault item payloads are encrypted in the browser before they are sent to the API. Unlocked vault keys and revealed values are cleared after inactivity or when the tab is hidden.",
       ),
     ).toBeInTheDocument();
   });

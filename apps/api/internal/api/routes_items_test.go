@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -169,6 +171,16 @@ func TestRoutesItemsRequireAuthentication(t *testing.T) {
 func TestRoutesItemActionsAuthenticated(t *testing.T) {
 	t.Parallel()
 
+	encryptedCreateBody := validRouteEncryptedItemRequestBody(
+		t,
+		vault.ItemTypeSecureNote,
+	)
+
+	encryptedUpdateBody := validRouteEncryptedItemRequestBody(
+		t,
+		vault.ItemTypeSecureNote,
+	)
+
 	tests := []struct {
 		name           string
 		method         string
@@ -185,12 +197,7 @@ func TestRoutesItemActionsAuthenticated(t *testing.T) {
 			path: "/v1/vaults/" +
 				routeItemTestVaultID +
 				"/items",
-			body: `{
-				"type": "secure_note",
-				"payload": {
-					"value": "synthetic"
-				}
-			}`,
+			body:           encryptedCreateBody,
 			idempotencyKey: "route-item-create-request",
 			wantStatus:     http.StatusCreated,
 			wantCall:       "create",
@@ -221,12 +228,7 @@ func TestRoutesItemActionsAuthenticated(t *testing.T) {
 				routeItemTestVaultID +
 				"/items/" +
 				routeItemTestID,
-			body: `{
-				"type": "secure_note",
-				"payload": {
-					"value": "updated-synthetic"
-				}
-			}`,
+			body:       encryptedUpdateBody,
 			ifMatch:    `"1"`,
 			wantStatus: http.StatusOK,
 			wantCall:   "update",
@@ -417,6 +419,51 @@ func newApplicationWithItemServiceAndSecurityEnforcer(
 	)
 }
 
+func validRouteEncryptedItemRequestBody(
+	t *testing.T,
+	itemType vault.ItemType,
+) string {
+	t.Helper()
+
+	body, err := json.Marshal(struct {
+		Type             vault.ItemType                    `json:"type"`
+		EncryptedPayload routeEncryptedPayloadTestResource `json:"encryptedPayload"`
+	}{
+		Type:             itemType,
+		EncryptedPayload: validRouteEncryptedPayloadTestResource(),
+	})
+	if err != nil {
+		t.Fatalf("marshal encrypted route item body: %v", err)
+	}
+
+	return string(body)
+}
+
+type routeEncryptedPayloadTestResource struct {
+	Version   int    `json:"version"`
+	Algorithm string `json:"algorithm"`
+	Blob      string `json:"blob"`
+}
+
+func validRouteEncryptedPayloadTestResource() routeEncryptedPayloadTestResource {
+	blob := make(
+		[]byte,
+		vault.ItemEncryptedPayloadNonceBytes+
+			vault.ItemEncryptedPayloadTagBytes+
+			4,
+	)
+
+	for index := range blob {
+		blob[index] = byte(index + 1)
+	}
+
+	return routeEncryptedPayloadTestResource{
+		Version:   vault.ItemEncryptedPayloadVersion,
+		Algorithm: vault.ItemEncryptedPayloadAlgorithm,
+		Blob:      base64.StdEncoding.EncodeToString(blob),
+	}
+}
+
 func newAuthenticatedItemRouteRequest(
 	t *testing.T,
 	method string,
@@ -582,9 +629,14 @@ func routeTestItem(
 		ID:      routeItemTestID,
 		VaultID: routeItemTestVaultID,
 		Type:    vault.ItemTypeSecureNote,
-		Payload: json.RawMessage(
-			`{"value":"synthetic"}`,
+		Payload: append(
+			[]byte{},
+			bytes.Repeat(
+				[]byte{0x41},
+				vault.ItemEncryptedPayloadTagBytes+4,
+			)...,
 		),
+		Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		Version:   version,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,

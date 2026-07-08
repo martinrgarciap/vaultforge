@@ -20,6 +20,7 @@ const (
 func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 	t.Parallel()
 
+	encryptedEnvelope := validItemServiceEncryptedEnvelopePointer(t)
 	createdAt := time.Date(2026, time.June, 22, 14, 0, 0, 0, time.UTC)
 
 	store := &itemServiceTestStore{
@@ -27,27 +28,25 @@ func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 			ID:        itemServiceTestItemID,
 			VaultID:   itemServiceTestVaultID,
 			Type:      ItemTypeAPIKey,
-			Payload:   json.RawMessage(`{"label":"Development","token":"synthetic-token"}`),
+			Payload:   append([]byte(nil), encryptedEnvelope.Payload...),
+			Nonce:     append([]byte(nil), encryptedEnvelope.Nonce...),
 			Version:   1,
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
 	}
 
-	service := &Service{items: store}
+	service := NewService(store)
 
 	createdItem, err := service.CreateItem(
 		context.Background(),
 		CreateItemInput{
-			OwnerID: itemServiceTestOwnerID,
-			VaultID: itemServiceTestVaultID,
-			Type:    ItemTypeAPIKey,
-			Payload: json.RawMessage(`{
-				"token": "synthetic-token",
-				"label": "Development"
-			}`),
-			IdempotencyKey: itemServiceTestIdempotencyKey,
-			CorrelationID:  itemServiceTestRequest,
+			OwnerID:           itemServiceTestOwnerID,
+			VaultID:           itemServiceTestVaultID,
+			Type:              ItemTypeAPIKey,
+			EncryptedEnvelope: encryptedEnvelope,
+			IdempotencyKey:    itemServiceTestIdempotencyKey,
+			CorrelationID:     itemServiceTestRequest,
 		},
 	)
 	if err != nil {
@@ -86,18 +85,17 @@ func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 		)
 	}
 
-	const wantPayload = `{"label":"Development","token":"synthetic-token"}`
-
-	if string(store.lastCreateInput.Envelope.Payload) != wantPayload {
-		t.Fatalf(
-			"store payload = %s, want %s",
-			store.lastCreateInput.Envelope.Payload,
-			wantPayload,
-		)
+	wantEnvelope, err := NewItemEnvelopeFromEncrypted(*encryptedEnvelope)
+	if err != nil {
+		t.Fatalf("NewItemEnvelopeFromEncrypted() error = %v", err)
 	}
 
-	if !IsSyntheticItemNonce(store.lastCreateInput.Envelope.Nonce) {
-		t.Fatal("store input did not contain the synthetic nonce")
+	if !itemEnvelopesEqual(store.lastCreateInput.Envelope, wantEnvelope) {
+		t.Fatal("store input did not contain the encrypted envelope")
+	}
+
+	if IsSyntheticItemNonce(store.lastCreateInput.Envelope.Nonce) {
+		t.Fatal("store input used the synthetic nonce")
 	}
 
 	wantIdempotency, err := NewItemCreateIdempotency(
@@ -117,13 +115,15 @@ func TestServiceCreateItemNormalizesAndCreatesItem(t *testing.T) {
 		t.Fatalf("item ID = %q, want %q", createdItem.ID, itemServiceTestItemID)
 	}
 
-	if string(createdItem.Payload) != wantPayload {
-		t.Fatalf("created payload = %s, want %s", createdItem.Payload, wantPayload)
+	if !itemEnvelopesEqual(createdItem.Envelope(), wantEnvelope) {
+		t.Fatal("created item did not preserve the encrypted envelope")
 	}
 }
 
 func TestServiceCreateItemRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
+
+	validEncryptedEnvelope := validItemServiceEncryptedEnvelopePointer(t)
 
 	tests := []struct {
 		name    string
@@ -133,84 +133,71 @@ func TestServiceCreateItemRejectsInvalidInputs(t *testing.T) {
 		{
 			name: "invalid owner",
 			input: CreateItemInput{
-				OwnerID:        "",
-				VaultID:        itemServiceTestVaultID,
-				Type:           ItemTypeSecureNote,
-				Payload:        json.RawMessage(`{}`),
-				IdempotencyKey: itemServiceTestIdempotencyKey,
-				CorrelationID:  itemServiceTestRequest,
+				OwnerID:           "",
+				VaultID:           itemServiceTestVaultID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				IdempotencyKey:    itemServiceTestIdempotencyKey,
+				CorrelationID:     itemServiceTestRequest,
 			},
 			wantErr: ErrOwnerInvalid,
 		},
 		{
 			name: "invalid vault",
 			input: CreateItemInput{
-				OwnerID:        itemServiceTestOwnerID,
-				VaultID:        " ",
-				Type:           ItemTypeSecureNote,
-				Payload:        json.RawMessage(`{}`),
-				IdempotencyKey: itemServiceTestIdempotencyKey,
-				CorrelationID:  itemServiceTestRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           " ",
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				IdempotencyKey:    itemServiceTestIdempotencyKey,
+				CorrelationID:     itemServiceTestRequest,
 			},
 			wantErr: ErrVaultNotFound,
 		},
 		{
 			name: "invalid item type",
 			input: CreateItemInput{
-				OwnerID:        itemServiceTestOwnerID,
-				VaultID:        itemServiceTestVaultID,
-				Type:           "unsupported",
-				Payload:        json.RawMessage(`{}`),
-				IdempotencyKey: itemServiceTestIdempotencyKey,
-				CorrelationID:  itemServiceTestRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				Type:              "unsupported",
+				EncryptedEnvelope: validEncryptedEnvelope,
+				IdempotencyKey:    itemServiceTestIdempotencyKey,
+				CorrelationID:     itemServiceTestRequest,
 			},
 			wantErr: ErrItemTypeInvalid,
 		},
 		{
 			name: "invalid correlation ID",
 			input: CreateItemInput{
-				OwnerID:        itemServiceTestOwnerID,
-				VaultID:        itemServiceTestVaultID,
-				Type:           ItemTypeSecureNote,
-				Payload:        json.RawMessage(`{}`),
-				IdempotencyKey: itemServiceTestIdempotencyKey,
-				CorrelationID:  "",
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				IdempotencyKey:    itemServiceTestIdempotencyKey,
+				CorrelationID:     "",
 			},
 			wantErr: ErrCorrelationIDInvalid,
 		},
 		{
-			name: "empty payload",
+			name: "missing encrypted payload",
 			input: CreateItemInput{
 				OwnerID:        itemServiceTestOwnerID,
 				VaultID:        itemServiceTestVaultID,
 				Type:           ItemTypeSecureNote,
-				Payload:        nil,
 				IdempotencyKey: itemServiceTestIdempotencyKey,
 				CorrelationID:  itemServiceTestRequest,
 			},
-			wantErr: ErrItemPayloadEmpty,
-		},
-		{
-			name: "payload is not an object",
-			input: CreateItemInput{
-				OwnerID:        itemServiceTestOwnerID,
-				VaultID:        itemServiceTestVaultID,
-				Type:           ItemTypeSecureNote,
-				Payload:        json.RawMessage(`["value"]`),
-				IdempotencyKey: itemServiceTestIdempotencyKey,
-				CorrelationID:  itemServiceTestRequest,
-			},
-			wantErr: ErrItemPayloadNotObject,
+			wantErr: ErrItemEncryptedPayloadEmpty,
 		},
 		{
 			name: "invalid idempotency key",
 			input: CreateItemInput{
-				OwnerID:        itemServiceTestOwnerID,
-				VaultID:        itemServiceTestVaultID,
-				Type:           ItemTypeSecureNote,
-				Payload:        json.RawMessage(`{}`),
-				IdempotencyKey: " ",
-				CorrelationID:  itemServiceTestRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				IdempotencyKey:    " ",
+				CorrelationID:     itemServiceTestRequest,
 			},
 			wantErr: ErrItemIdempotencyKeyInvalid,
 		},
@@ -221,7 +208,7 @@ func TestServiceCreateItemRejectsInvalidInputs(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.CreateItem(context.Background(), test.input)
 
@@ -273,11 +260,11 @@ func TestServiceCreateItemMapsStoreErrorsSafely(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{createErr: test.storeErr}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.CreateItem(
 				context.Background(),
-				validItemServiceCreateInput(),
+				validItemServiceCreateInput(t),
 			)
 
 			if !errors.Is(err, test.wantErr) {
@@ -355,11 +342,11 @@ func TestServiceCreateItemRejectsMalformedStoredItem(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{createResult: test.item}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.CreateItem(
 				context.Background(),
-				validItemServiceCreateInput(),
+				validItemServiceCreateInput(t),
 			)
 
 			if !errors.Is(err, ErrItemUnavailable) {
@@ -374,7 +361,7 @@ func TestServiceCreateItemRejectsUnavailableDependency(t *testing.T) {
 
 	service := &Service{}
 
-	_, err := service.CreateItem(context.Background(), validItemServiceCreateInput())
+	_, err := service.CreateItem(context.Background(), validItemServiceCreateInput(t))
 
 	if !errors.Is(err, ErrItemUnavailable) {
 		t.Fatalf("CreateItem() error = %v, want %v", err, ErrItemUnavailable)
@@ -385,12 +372,12 @@ func TestServiceCreateItemPreservesCanceledContext(t *testing.T) {
 	t.Parallel()
 
 	store := &itemServiceTestStore{}
-	service := &Service{items: store}
+	service := NewService(store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := service.CreateItem(ctx, validItemServiceCreateInput())
+	_, err := service.CreateItem(ctx, validItemServiceCreateInput(t))
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("CreateItem() error = %v, want %v", err, context.Canceled)
@@ -401,13 +388,26 @@ func TestServiceCreateItemPreservesCanceledContext(t *testing.T) {
 	}
 }
 
-func validItemServiceCreateInput() CreateItemInput {
+func validItemServiceEncryptedEnvelopePointer(t *testing.T) *EncryptedItemEnvelope {
+	t.Helper()
+
+	encryptedEnvelope, err := NewEncryptedItemEnvelope(validEncryptedRegressionBlob(t))
+	if err != nil {
+		t.Fatalf("NewEncryptedItemEnvelope() error = %v", err)
+	}
+
+	return &encryptedEnvelope
+}
+
+func validItemServiceCreateInput(t *testing.T) CreateItemInput {
+	t.Helper()
+
 	return CreateItemInput{
-		OwnerID:        itemServiceTestOwnerID,
-		VaultID:        itemServiceTestVaultID,
-		Type:           ItemTypeSecureNote,
-		Payload:        json.RawMessage(`{"value":"synthetic"}`),
-		IdempotencyKey: itemServiceTestIdempotencyKey,
-		CorrelationID:  itemServiceTestRequest,
+		OwnerID:           itemServiceTestOwnerID,
+		VaultID:           itemServiceTestVaultID,
+		Type:              ItemTypeSecureNote,
+		EncryptedEnvelope: validItemServiceEncryptedEnvelopePointer(t),
+		IdempotencyKey:    itemServiceTestIdempotencyKey,
+		CorrelationID:     itemServiceTestRequest,
 	}
 }

@@ -521,6 +521,8 @@ The browser must never persist access tokens in:
 - Logs
 - Error reports
 
+Unwrapped vault keys are kept in memory only. The browser clears them when the user locks the vault, authentication is lost, the tab becomes hidden, or the inactivity timer expires.
+
 Account password hashing, session authentication, Redis operational security state, and browser-side vault encryption are separate security concerns.
 
 Access tokens are returned in JSON for in-memory client use. Refresh tokens are never returned in JSON; they are delivered through host-only `HttpOnly`, `SameSite=Strict` cookies scoped to `/v1/auth/refresh`. A readable CSRF cookie must exactly match the `X-CSRF-Token` header on refresh requests. Production enables the cookie `Secure` flag, while local development and tests permit HTTP.

@@ -19,7 +19,7 @@ The current implementation includes:
 - Owner-scoped vault workflows
 - Complete encrypted vault-item lifecycle workflows
 - Keyset pagination
-- Idempotency keys for item creation
+- Idempotency keys for item creation. Encrypted create retries must resend the exact same encrypted payload bytes for the same idempotency key; re-encrypting the same plaintext with a new nonce is treated as conflicting idempotency-key reuse.
 - Strong `ETag` and `If-Match` optimistic concurrency
 - Sanitized transactional outbox writes
 - Optional OpenTelemetry tracing for HTTP, PostgreSQL, and Redis

@@ -25,6 +25,7 @@ import {
   itemEncryptedPayloadAlgorithm,
   minimumItemEncryptedPayloadBlobBytes,
 } from "./encryptedPayload";
+import { encodeItemPlaintext } from "./itemEncryption";
 import { ItemWorkspace } from "./ItemWorkspace";
 
 const loginItem = {
@@ -92,6 +93,34 @@ function validEncryptedBlob(): Uint8Array {
   );
 }
 
+function encryptedPayloadForPayload(payload: unknown) {
+  const plaintext = encodeItemPlaintext(payload as Record<string, unknown>);
+  const prefix = validEncryptedBlob();
+  const blob = new Uint8Array(prefix.length + plaintext.length);
+
+  blob.set(prefix);
+  blob.set(plaintext, prefix.length);
+
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: bytesToBase64(blob),
+  };
+}
+
+function encryptedItemResource<T extends { payload: unknown }>(item: T) {
+  const { payload, ...resource } = item;
+
+  return {
+    ...resource,
+    encryptedPayload: encryptedPayloadForPayload(payload),
+  };
+}
+
+function decryptTestEnvelope(envelope: ItemCryptoEnvelope): Uint8Array {
+  return envelope.blob.slice(validEncryptedBlob().length);
+}
+
 function createTestItemEnvelope(): ItemCryptoEnvelope {
   return {
     version: CRYPTO_ENVELOPE_VERSION,
@@ -116,7 +145,9 @@ function createTestCryptoProvider(): CryptoProvider {
     encryptItem: vi.fn(
       async (): Promise<ItemCryptoEnvelope> => createTestItemEnvelope(),
     ),
-    decryptItem: vi.fn(async () => new Uint8Array()),
+    decryptItem: vi.fn(async (_vaultKey, envelope) =>
+      decryptTestEnvelope(envelope),
+    ),
     wrapKey: vi.fn(
       async (): Promise<WrappedKeyEnvelope> => createTestWrappedKeyEnvelope(),
     ),
@@ -172,7 +203,10 @@ function renderWorkspace(requestImplementation: RequestImplementation) {
 describe("ItemWorkspace", () => {
   it("groups nonempty item types and omits empty types", async () => {
     const requestMock = vi.fn(async () => ({
-      items: [loginItem, noteItem],
+      items: [
+        encryptedItemResource(loginItem),
+        encryptedItemResource(noteItem),
+      ],
     }));
 
     renderWorkspace(requestMock);
@@ -230,7 +264,7 @@ describe("ItemWorkspace", () => {
 
   it("reveals and copies compact values without opening the row", async () => {
     const requestMock = vi.fn(async () => ({
-      items: [loginItem],
+      items: [encryptedItemResource(loginItem)],
     }));
 
     renderWorkspace(requestMock);
@@ -266,7 +300,7 @@ describe("ItemWorkspace", () => {
 
   it("opens an active item from its table row", async () => {
     const requestMock = vi.fn(async () => ({
-      items: [loginItem],
+      items: [encryptedItemResource(loginItem)],
     }));
 
     renderWorkspace(requestMock);
@@ -292,7 +326,7 @@ describe("ItemWorkspace", () => {
     const requestMock = vi.fn(async (path: string) => {
       if (path.includes("state=deleted")) {
         return {
-          items: [deletedItem],
+          items: [encryptedItemResource(deletedItem)],
         };
       }
 
@@ -334,12 +368,12 @@ describe("ItemWorkspace", () => {
     const requestMock = vi.fn(async (path: string) => {
       if (path.includes("state=deleted")) {
         return {
-          items: [deletedItem],
+          items: [encryptedItemResource(deletedItem)],
         };
       }
 
       return {
-        items: [loginItem],
+        items: [encryptedItemResource(loginItem)],
       };
     });
 
@@ -395,7 +429,7 @@ describe("ItemWorkspace", () => {
       async (_path: string, options?: ApiRequestOptions) => {
         if (options?.method === "POST") {
           return {
-            item: createdItem,
+            item: encryptedItemResource(createdItem),
           };
         }
 
@@ -500,12 +534,12 @@ describe("ItemWorkspace", () => {
     const requestMock = vi.fn(async (path: string) => {
       if (path.includes("after=cursor-token")) {
         return {
-          items: [secondItem],
+          items: [encryptedItemResource(secondItem)],
         };
       }
 
       return {
-        items: [loginItem],
+        items: [encryptedItemResource(loginItem)],
         nextCursor: "cursor-token",
       };
     });

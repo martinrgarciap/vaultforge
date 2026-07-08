@@ -1,7 +1,6 @@
 package itemhandler
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/vault"
@@ -17,29 +16,18 @@ type itemListResponse struct {
 }
 
 type itemResource struct {
-	ID               string                        `json:"id"`
-	Type             vault.ItemType                `json:"type"`
-	Payload          json.RawMessage               `json:"payload,omitempty"`
-	EncryptedPayload *itemEncryptedPayloadResource `json:"encryptedPayload,omitempty"`
-	Version          int                           `json:"version"`
-	CreatedAt        time.Time                     `json:"createdAt"`
-	UpdatedAt        time.Time                     `json:"updatedAt"`
-	DeletedAt        *time.Time                    `json:"deletedAt,omitempty"`
+	ID               string                       `json:"id"`
+	Type             vault.ItemType               `json:"type"`
+	EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
+	Version          int                          `json:"version"`
+	CreatedAt        time.Time                    `json:"createdAt"`
+	UpdatedAt        time.Time                    `json:"updatedAt"`
+	DeletedAt        *time.Time                   `json:"deletedAt,omitempty"`
 }
 
-func newItemResource(storedItem vault.Item) itemResource {
-	resource := itemResource{
-		ID:        storedItem.ID,
-		Type:      storedItem.Type,
-		Version:   storedItem.Version,
-		CreatedAt: storedItem.CreatedAt,
-		UpdatedAt: storedItem.UpdatedAt,
-		DeletedAt: storedItem.DeletedAt,
-	}
-
+func newItemResource(storedItem vault.Item) (itemResource, error) {
 	if len(storedItem.Nonce) == 0 || vault.IsSyntheticItemNonce(storedItem.Nonce) {
-		resource.Payload = storedItem.Payload
-		return resource
+		return itemResource{}, vault.ErrItemEncryptedPayloadInvalid
 	}
 
 	encryptedPayload, err := newItemEncryptedPayloadResource(
@@ -49,19 +37,30 @@ func newItemResource(storedItem vault.Item) itemResource {
 		},
 	)
 	if err != nil {
-		return resource
+		return itemResource{}, err
 	}
 
-	resource.EncryptedPayload = &encryptedPayload
-
-	return resource
+	return itemResource{
+		ID:               storedItem.ID,
+		Type:             storedItem.Type,
+		EncryptedPayload: encryptedPayload,
+		Version:          storedItem.Version,
+		CreatedAt:        storedItem.CreatedAt,
+		UpdatedAt:        storedItem.UpdatedAt,
+		DeletedAt:        storedItem.DeletedAt,
+	}, nil
 }
 
 func newItemListResponse(page vault.ItemPage) (itemListResponse, error) {
 	items := make([]itemResource, 0, len(page.Items))
 
 	for _, storedItem := range page.Items {
-		items = append(items, newItemResource(storedItem))
+		resource, err := newItemResource(storedItem)
+		if err != nil {
+			return itemListResponse{}, err
+		}
+
+		items = append(items, resource)
 	}
 
 	result := itemListResponse{

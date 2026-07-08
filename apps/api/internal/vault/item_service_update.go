@@ -2,7 +2,6 @@ package vault
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -11,7 +10,6 @@ type UpdateItemInput struct {
 	VaultID           string
 	ItemID            string
 	Type              ItemType
-	Payload           json.RawMessage
 	EncryptedEnvelope *EncryptedItemEnvelope
 	ExpectedVersion   int
 	CorrelationID     string
@@ -49,15 +47,20 @@ func (service *Service) UpdateItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
-	envelope, err := newItemEnvelopeFromWriteInput(
-		input.Payload,
-		input.EncryptedEnvelope,
-	)
+	envelope, err := newItemEnvelopeFromWriteInput(input.EncryptedEnvelope)
 	if err != nil {
 		return Item{}, err
 	}
 
 	if err := ValidateExpectedItemVersion(input.ExpectedVersion); err != nil {
+		return Item{}, err
+	}
+
+	if err := service.requireVaultCryptoInitialized(
+		ctx,
+		input.OwnerID,
+		input.VaultID,
+	); err != nil {
 		return Item{}, err
 	}
 

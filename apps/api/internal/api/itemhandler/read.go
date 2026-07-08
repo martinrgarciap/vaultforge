@@ -87,6 +87,18 @@ func (handler *Handler) Get(
 		return
 	}
 
+	resourceBody, err := newItemResource(storedItem)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
+		return
+	}
+
 	w.Header().Set(
 		"ETag",
 		itemETag(storedItem.Version),
@@ -96,7 +108,7 @@ func (handler *Handler) Get(
 		w,
 		http.StatusOK,
 		itemResponse{
-			Item: newItemResource(storedItem),
+			Item: resourceBody,
 		},
 	); err != nil {
 		handler.logResponseFailure(r)

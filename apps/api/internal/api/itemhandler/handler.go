@@ -2,7 +2,6 @@ package itemhandler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -62,7 +61,6 @@ type Handler struct {
 
 type createItemRequest struct {
 	Type             vault.ItemType               `json:"type"`
-	Payload          json.RawMessage              `json:"payload"`
 	EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
 }
 
@@ -104,7 +102,7 @@ func (handler *Handler) Create(
 		return
 	}
 
-	encryptedEnvelope, err := encryptedItemEnvelopePointerFromResource(
+	encryptedEnvelope, err := requiredEncryptedItemEnvelopeFromResource(
 		requestBody.EncryptedPayload,
 	)
 	if err != nil {
@@ -120,8 +118,7 @@ func (handler *Handler) Create(
 			OwnerID:           principal.UserID,
 			VaultID:           vaultID,
 			Type:              requestBody.Type,
-			Payload:           requestBody.Payload,
-			EncryptedEnvelope: encryptedEnvelope,
+			EncryptedEnvelope: &encryptedEnvelope,
 			IdempotencyKey:    key,
 			CorrelationID: chimiddleware.GetReqID(
 				r.Context(),
@@ -130,6 +127,18 @@ func (handler *Handler) Create(
 	)
 	if err != nil {
 		handler.writeServiceError(w, r, err)
+		return
+	}
+
+	resourceBody, err := newItemResource(createdItem)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
 		return
 	}
 
@@ -149,7 +158,7 @@ func (handler *Handler) Create(
 		w,
 		http.StatusCreated,
 		itemResponse{
-			Item: newItemResource(createdItem),
+			Item: resourceBody,
 		},
 	)
 	if err != nil {

@@ -14,6 +14,7 @@ const itemServiceUpdateRequest = "item-service-update-request"
 func TestServiceUpdateItemNormalizesAndUpdatesItem(t *testing.T) {
 	t.Parallel()
 
+	encryptedEnvelope := validItemServiceEncryptedEnvelopePointer(t)
 	updatedAt := time.Date(2026, time.June, 22, 22, 0, 0, 0, time.UTC)
 
 	store := &itemServiceTestStore{
@@ -21,28 +22,26 @@ func TestServiceUpdateItemNormalizesAndUpdatesItem(t *testing.T) {
 			ID:        itemServiceTestItemID,
 			VaultID:   itemServiceTestVaultID,
 			Type:      ItemTypeAPIKey,
-			Payload:   json.RawMessage(`{"label":"Updated","token":"synthetic-token"}`),
+			Payload:   append([]byte(nil), encryptedEnvelope.Payload...),
+			Nonce:     append([]byte(nil), encryptedEnvelope.Nonce...),
 			Version:   2,
 			CreatedAt: updatedAt.Add(-time.Hour),
 			UpdatedAt: updatedAt,
 		},
 	}
 
-	service := &Service{items: store}
+	service := NewService(store)
 
 	updatedItem, err := service.UpdateItem(
 		context.Background(),
 		UpdateItemInput{
-			OwnerID: itemServiceTestOwnerID,
-			VaultID: itemServiceTestVaultID,
-			ItemID:  itemServiceTestItemID,
-			Type:    ItemTypeAPIKey,
-			Payload: json.RawMessage(`{
-				"token": "synthetic-token",
-				"label": "Updated"
-			}`),
-			ExpectedVersion: 1,
-			CorrelationID:   itemServiceUpdateRequest,
+			OwnerID:           itemServiceTestOwnerID,
+			VaultID:           itemServiceTestVaultID,
+			ItemID:            itemServiceTestItemID,
+			Type:              ItemTypeAPIKey,
+			EncryptedEnvelope: encryptedEnvelope,
+			ExpectedVersion:   1,
+			CorrelationID:     itemServiceUpdateRequest,
 		},
 	)
 	if err != nil {
@@ -93,18 +92,17 @@ func TestServiceUpdateItemNormalizesAndUpdatesItem(t *testing.T) {
 		)
 	}
 
-	const wantPayload = `{"label":"Updated","token":"synthetic-token"}`
-
-	if string(store.lastUpdateInput.Envelope.Payload) != wantPayload {
-		t.Fatalf(
-			"store payload = %s, want %s",
-			store.lastUpdateInput.Envelope.Payload,
-			wantPayload,
-		)
+	wantEnvelope, err := NewItemEnvelopeFromEncrypted(*encryptedEnvelope)
+	if err != nil {
+		t.Fatalf("NewItemEnvelopeFromEncrypted() error = %v", err)
 	}
 
-	if !IsSyntheticItemNonce(store.lastUpdateInput.Envelope.Nonce) {
-		t.Fatal("store input did not contain the synthetic nonce")
+	if !itemEnvelopesEqual(store.lastUpdateInput.Envelope, wantEnvelope) {
+		t.Fatal("store input did not contain the encrypted envelope")
+	}
+
+	if IsSyntheticItemNonce(store.lastUpdateInput.Envelope.Nonce) {
+		t.Fatal("store input used the synthetic nonce")
 	}
 
 	if updatedItem.ID != itemServiceTestItemID {
@@ -119,13 +117,15 @@ func TestServiceUpdateItemNormalizesAndUpdatesItem(t *testing.T) {
 		t.Fatalf("updated version = %d, want 2", updatedItem.Version)
 	}
 
-	if string(updatedItem.Payload) != wantPayload {
-		t.Fatalf("updated payload = %s, want %s", updatedItem.Payload, wantPayload)
+	if !itemEnvelopesEqual(updatedItem.Envelope(), wantEnvelope) {
+		t.Fatal("updated item did not preserve the encrypted envelope")
 	}
 }
 
 func TestServiceUpdateItemRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
+
+	validEncryptedEnvelope := validItemServiceEncryptedEnvelopePointer(t)
 
 	tests := []struct {
 		name    string
@@ -135,95 +135,83 @@ func TestServiceUpdateItemRejectsInvalidInputs(t *testing.T) {
 		{
 			name: "invalid owner",
 			input: UpdateItemInput{
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        itemServiceTestItemID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceUpdateRequest,
+				VaultID:           itemServiceTestVaultID,
+				ItemID:            itemServiceTestItemID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				CorrelationID:     itemServiceUpdateRequest,
 			},
 			wantErr: ErrOwnerInvalid,
 		},
 		{
 			name: "invalid vault",
 			input: UpdateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       " ",
-				ItemID:        itemServiceTestItemID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceUpdateRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           " ",
+				ItemID:            itemServiceTestItemID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				CorrelationID:     itemServiceUpdateRequest,
 			},
 			wantErr: ErrVaultNotFound,
 		},
 		{
 			name: "invalid item",
 			input: UpdateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        "",
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceUpdateRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				ItemID:            "",
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				CorrelationID:     itemServiceUpdateRequest,
 			},
 			wantErr: ErrItemNotFound,
 		},
 		{
 			name: "invalid type",
 			input: UpdateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        itemServiceTestItemID,
-				Type:          "unsupported",
-				Payload:       json.RawMessage(`{}`),
-				CorrelationID: itemServiceUpdateRequest,
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				ItemID:            itemServiceTestItemID,
+				Type:              "unsupported",
+				EncryptedEnvelope: validEncryptedEnvelope,
+				CorrelationID:     itemServiceUpdateRequest,
 			},
 			wantErr: ErrItemTypeInvalid,
 		},
 		{
 			name: "invalid correlation ID",
 			input: UpdateItemInput{
-				OwnerID: itemServiceTestOwnerID,
-				VaultID: itemServiceTestVaultID,
-				ItemID:  itemServiceTestItemID,
-				Type:    ItemTypeSecureNote,
-				Payload: json.RawMessage(`{}`),
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				ItemID:            itemServiceTestItemID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
 			},
 			wantErr: ErrCorrelationIDInvalid,
 		},
 		{
-			name: "empty payload",
-			input: UpdateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        itemServiceTestItemID,
-				Type:          ItemTypeSecureNote,
-				Payload:       nil,
-				CorrelationID: itemServiceUpdateRequest,
-			},
-			wantErr: ErrItemPayloadEmpty,
-		},
-		{
-			name: "payload is not object",
-			input: UpdateItemInput{
-				OwnerID:       itemServiceTestOwnerID,
-				VaultID:       itemServiceTestVaultID,
-				ItemID:        itemServiceTestItemID,
-				Type:          ItemTypeSecureNote,
-				Payload:       json.RawMessage(`["value"]`),
-				CorrelationID: itemServiceUpdateRequest,
-			},
-			wantErr: ErrItemPayloadNotObject,
-		},
-		{
-			name: "invalid expected version",
+			name: "missing encrypted payload",
 			input: UpdateItemInput{
 				OwnerID:         itemServiceTestOwnerID,
 				VaultID:         itemServiceTestVaultID,
 				ItemID:          itemServiceTestItemID,
 				Type:            ItemTypeSecureNote,
-				Payload:         json.RawMessage(`{}`),
-				ExpectedVersion: 0,
+				ExpectedVersion: 1,
 				CorrelationID:   itemServiceUpdateRequest,
+			},
+			wantErr: ErrItemEncryptedPayloadEmpty,
+		},
+		{
+			name: "invalid expected version",
+			input: UpdateItemInput{
+				OwnerID:           itemServiceTestOwnerID,
+				VaultID:           itemServiceTestVaultID,
+				ItemID:            itemServiceTestItemID,
+				Type:              ItemTypeSecureNote,
+				EncryptedEnvelope: validEncryptedEnvelope,
+				ExpectedVersion:   0,
+				CorrelationID:     itemServiceUpdateRequest,
 			},
 			wantErr: ErrItemVersionInvalid,
 		},
@@ -234,7 +222,7 @@ func TestServiceUpdateItemRejectsInvalidInputs(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.UpdateItem(context.Background(), test.input)
 
@@ -286,11 +274,11 @@ func TestServiceUpdateItemMapsStoreErrorsSafely(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{updateErr: test.storeErr}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.UpdateItem(
 				context.Background(),
-				validItemServiceUpdateInput(),
+				validItemServiceUpdateInput(t),
 			)
 
 			if !errors.Is(err, test.wantErr) {
@@ -404,11 +392,11 @@ func TestServiceUpdateItemRejectsMalformedStoredItems(t *testing.T) {
 			t.Parallel()
 
 			store := &itemServiceTestStore{updateResult: test.item}
-			service := &Service{items: store}
+			service := NewService(store)
 
 			_, err := service.UpdateItem(
 				context.Background(),
-				validItemServiceUpdateInput(),
+				validItemServiceUpdateInput(t),
 			)
 
 			if !errors.Is(err, ErrItemUnavailable) {
@@ -425,7 +413,7 @@ func TestServiceUpdateItemRejectsUnavailableDependency(t *testing.T) {
 
 	_, err := service.UpdateItem(
 		context.Background(),
-		validItemServiceUpdateInput(),
+		validItemServiceUpdateInput(t),
 	)
 
 	if !errors.Is(err, ErrItemUnavailable) {
@@ -437,12 +425,12 @@ func TestServiceUpdateItemPreservesCanceledContext(t *testing.T) {
 	t.Parallel()
 
 	store := &itemServiceTestStore{}
-	service := &Service{items: store}
+	service := NewService(store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := service.UpdateItem(ctx, validItemServiceUpdateInput())
+	_, err := service.UpdateItem(ctx, validItemServiceUpdateInput(t))
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("UpdateItem() error = %v, want %v", err, context.Canceled)
@@ -453,14 +441,16 @@ func TestServiceUpdateItemPreservesCanceledContext(t *testing.T) {
 	}
 }
 
-func validItemServiceUpdateInput() UpdateItemInput {
+func validItemServiceUpdateInput(t *testing.T) UpdateItemInput {
+	t.Helper()
+
 	return UpdateItemInput{
-		OwnerID:         itemServiceTestOwnerID,
-		VaultID:         itemServiceTestVaultID,
-		ItemID:          itemServiceTestItemID,
-		Type:            ItemTypeAPIKey,
-		Payload:         json.RawMessage(`{"label":"Updated","token":"synthetic-token"}`),
-		ExpectedVersion: 1,
-		CorrelationID:   itemServiceUpdateRequest,
+		OwnerID:           itemServiceTestOwnerID,
+		VaultID:           itemServiceTestVaultID,
+		ItemID:            itemServiceTestItemID,
+		Type:              ItemTypeAPIKey,
+		EncryptedEnvelope: validItemServiceEncryptedEnvelopePointer(t),
+		ExpectedVersion:   1,
+		CorrelationID:     itemServiceUpdateRequest,
 	}
 }

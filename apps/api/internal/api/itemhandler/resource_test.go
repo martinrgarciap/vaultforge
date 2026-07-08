@@ -1,6 +1,7 @@
 package itemhandler
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -33,14 +34,18 @@ func TestNewItemResourceMapsPublicFields(t *testing.T) {
 		ID:        itemHandlerTestItemID,
 		VaultID:   itemHandlerTestVaultID,
 		Type:      vault.ItemTypeAPIKey,
-		Payload:   json.RawMessage(`{"label":"Synthetic","value":"dummy-only"}`),
+		Payload:   append([]byte{}, bytes.Repeat([]byte{0x41}, vault.ItemEncryptedPayloadTagBytes+4)...),
+		Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		Version:   3,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 		DeletedAt: &deletedAt,
 	}
 
-	resource := newItemResource(storedItem)
+	resource, err := newItemResource(storedItem)
+	if err != nil {
+		t.Fatalf("newItemResource() error = %v", err)
+	}
 
 	if resource.ID != storedItem.ID {
 		t.Fatalf("resource ID = %q, want %q", resource.ID, storedItem.ID)
@@ -54,11 +59,11 @@ func TestNewItemResourceMapsPublicFields(t *testing.T) {
 		)
 	}
 
-	if string(resource.Payload) != string(storedItem.Payload) {
+	if resource.EncryptedPayload.Version != vault.ItemEncryptedPayloadVersion {
 		t.Fatalf(
-			"resource payload = %s, want %s",
-			resource.Payload,
-			storedItem.Payload,
+			"encrypted payload version = %d, want %d",
+			resource.EncryptedPayload.Version,
+			vault.ItemEncryptedPayloadVersion,
 		)
 	}
 
@@ -98,21 +103,8 @@ func TestNewItemResourceMapsPublicFields(t *testing.T) {
 		t.Fatal("item response exposed an owner field")
 	}
 
-	var decoded struct {
-		Item struct {
-			Payload map[string]any `json:"payload"`
-		} `json:"item"`
-	}
-
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("decode item response: %v", err)
-	}
-
-	if decoded.Item.Payload["value"] != "dummy-only" {
-		t.Fatalf(
-			"decoded payload value = %v, want dummy-only",
-			decoded.Item.Payload["value"],
-		)
+	if strings.Contains(responseBody, `"payload"`) {
+		t.Fatal("item response included a plaintext payload field")
 	}
 }
 
@@ -136,7 +128,8 @@ func TestNewItemListResponseEncodesNextCursor(t *testing.T) {
 				ID:        itemHandlerTestItemID,
 				VaultID:   itemHandlerTestVaultID,
 				Type:      vault.ItemTypeSecureNote,
-				Payload:   json.RawMessage(`{"value":"synthetic"}`),
+				Payload:   append([]byte{}, bytes.Repeat([]byte{0x41}, vault.ItemEncryptedPayloadTagBytes+4)...),
+				Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 				Version:   1,
 				CreatedAt: updatedAt.Add(-time.Minute),
 				UpdatedAt: updatedAt,

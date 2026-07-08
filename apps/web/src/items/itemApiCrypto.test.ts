@@ -119,20 +119,19 @@ describe("encrypted item API response helpers", () => {
     expect(provider.decryptItem).toHaveBeenCalledTimes(1);
   });
 
-  it("parses temporary plaintext item responses without decrypting", async () => {
+  it("rejects plaintext item responses without decrypting", async () => {
     const provider = createTestCryptoProvider();
 
-    const response = await decryptItemApiResponse({
-      provider,
-      vaultKey: new Uint8Array(32),
-      value: {
-        item: plaintextItemResource,
-      },
-    });
+    await expect(
+      decryptItemApiResponse({
+        provider,
+        vaultKey: new Uint8Array(32),
+        value: {
+          item: plaintextItemResource,
+        },
+      }),
+    ).rejects.toThrow(ApiError);
 
-    expect(response).toEqual({
-      item: plaintextItemResource,
-    });
     expect(provider.decryptItem).not.toHaveBeenCalled();
   });
 

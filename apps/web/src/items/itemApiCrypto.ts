@@ -117,21 +117,11 @@ async function parseOrDecryptPayload({
   vaultKey: Uint8Array;
   value: Record<string, unknown>;
 }): Promise<DecryptedItemPayload> {
-  const hasPlaintextPayload = Object.prototype.hasOwnProperty.call(
-    value,
-    "payload",
-  );
-  const hasEncryptedPayload = Object.prototype.hasOwnProperty.call(
-    value,
-    "encryptedPayload",
-  );
-
-  if (hasPlaintextPayload === hasEncryptedPayload) {
+  if (
+    !Object.prototype.hasOwnProperty.call(value, "encryptedPayload") ||
+    Object.prototype.hasOwnProperty.call(value, "payload")
+  ) {
     throw ApiError.invalidResponse();
-  }
-
-  if (hasPlaintextPayload) {
-    return parsePlaintextPayload(value.payload);
   }
 
   return decryptItemPayload({
@@ -139,14 +129,6 @@ async function parseOrDecryptPayload({
     vaultKey,
     encryptedPayload: parseEncryptedPayload(value.encryptedPayload),
   });
-}
-
-function parsePlaintextPayload(value: unknown): DecryptedItemPayload {
-  if (!isRecord(value)) {
-    throw ApiError.invalidResponse();
-  }
-
-  return value;
 }
 
 function parseEncryptedPayload(value: unknown): ItemEncryptedPayloadWire {

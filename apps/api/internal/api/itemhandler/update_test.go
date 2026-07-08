@@ -1,6 +1,7 @@
 package itemhandler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,9 +32,11 @@ func TestHandlerUpdatesVaultItem(t *testing.T) {
 			ID:      itemHandlerCreateTestItemID,
 			VaultID: itemHandlerCreateTestVaultID,
 			Type:    vault.ItemTypeAPIKey,
-			Payload: json.RawMessage(
-				`{"label":"Updated","token":"synthetic-updated-token"}`,
+			Payload: bytes.Repeat(
+				[]byte{0x41},
+				vault.ItemEncryptedPayloadTagBytes+4,
 			),
+			Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 			Version:   3,
 			CreatedAt: updatedAt.Add(-time.Hour),
 			UpdatedAt: updatedAt,
@@ -43,13 +46,7 @@ func TestHandlerUpdatesVaultItem(t *testing.T) {
 	router := newItemHandlerTestRouter(service)
 
 	request := newUpdateItemTestRequest(
-		`{
-			"type": "api_key",
-			"payload": {
-				"token": "synthetic-updated-token",
-				"label": "Updated"
-			}
-		}`,
+		validEncryptedItemRequestBody(t, vault.ItemTypeAPIKey),
 		"application/json",
 		`"2"`,
 	)
@@ -323,7 +320,7 @@ func TestHandlerUpdateMapsServiceErrors(t *testing.T) {
 			router := newItemHandlerTestRouter(service)
 
 			request := newUpdateItemTestRequest(
-				`{"type":"secure_note","payload":{}}`,
+				validEncryptedItemRequestBody(t, vault.ItemTypeSecureNote),
 				"application/json",
 				`"1"`,
 			)
@@ -347,6 +344,38 @@ func TestHandlerUpdateMapsServiceErrors(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestHandlerUpdateRejectsPlaintextPayload(t *testing.T) {
+	t.Parallel()
+
+	service := &itemHandlerTestService{}
+	router := newItemHandlerTestRouter(service)
+
+	request := newUpdateItemTestRequest(
+		`{
+			"type": "secure_note",
+			"payload": {
+				"secret": "plaintext-must-not-be-accepted"
+			}
+		}`,
+		"application/json",
+		`"1"`,
+	)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assertItemHandlerTestError(
+		t,
+		recorder,
+		http.StatusBadRequest,
+		"invalid_request",
+	)
+
+	if service.updateCalls != 0 {
+		t.Fatal("service was called for a plaintext payload update request")
 	}
 }
 

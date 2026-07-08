@@ -3,7 +3,6 @@ package vault
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -12,7 +11,6 @@ type CreateItemInput struct {
 	OwnerID           string
 	VaultID           string
 	Type              ItemType
-	Payload           json.RawMessage
 	EncryptedEnvelope *EncryptedItemEnvelope
 	IdempotencyKey    string
 	CorrelationID     string
@@ -46,10 +44,15 @@ func (service *Service) CreateItem(
 		return Item{}, ErrCorrelationIDInvalid
 	}
 
-	envelope, err := newItemEnvelopeFromWriteInput(
-		input.Payload,
-		input.EncryptedEnvelope,
-	)
+	if err := service.requireVaultCryptoInitialized(
+		ctx,
+		input.OwnerID,
+		input.VaultID,
+	); err != nil {
+		return Item{}, err
+	}
+
+	envelope, err := newItemEnvelopeFromWriteInput(input.EncryptedEnvelope)
 	if err != nil {
 		return Item{}, err
 	}
@@ -92,19 +95,49 @@ func (service *Service) itemsAvailable() bool {
 	return service != nil && service.items != nil
 }
 
-func newItemEnvelopeFromWriteInput(
-	payload json.RawMessage,
-	encryptedEnvelope *EncryptedItemEnvelope,
-) (ItemEnvelope, error) {
-	if encryptedEnvelope != nil {
-		if len(bytes.TrimSpace(payload)) > 0 {
-			return ItemEnvelope{}, ErrItemPayloadInvalid
-		}
-
-		return NewItemEnvelopeFromEncrypted(*encryptedEnvelope)
+func (service *Service) requireVaultCryptoInitialized(
+	ctx context.Context,
+	ownerID string,
+	vaultID string,
+) error {
+	if !service.available() {
+		return fmt.Errorf("require vault crypto metadata: %w", ErrVaultUnavailable)
 	}
 
-	return NewSyntheticItemEnvelope(payload)
+	storedVault, err := service.vaults.GetOwned(ctx, ownerID, vaultID)
+	if err != nil {
+		return mapVaultOperationError("require vault crypto metadata", err)
+	}
+
+	if !validStoredVault(storedVault, ownerID) || storedVault.ID != vaultID {
+		return fmt.Errorf("require vault crypto metadata: %w", ErrVaultUnavailable)
+	}
+
+	if storedVault.CryptoVersion == nil ||
+		storedVault.KDFVersion == nil ||
+		len(storedVault.Salt) == 0 ||
+		len(storedVault.WrappedKey) == 0 {
+		return ErrVaultCryptoMetadataInvalid
+	}
+
+	return validateVaultCryptoMetadata(
+		VaultCryptoMetadata{
+			CryptoVersion: *storedVault.CryptoVersion,
+			KDFVersion:    *storedVault.KDFVersion,
+			Salt:          storedVault.Salt,
+			WrappedKey:    storedVault.WrappedKey,
+		},
+	)
+}
+
+func newItemEnvelopeFromWriteInput(
+	encryptedEnvelope *EncryptedItemEnvelope,
+) (ItemEnvelope, error) {
+	if encryptedEnvelope == nil {
+		return ItemEnvelope{}, ErrItemEncryptedPayloadEmpty
+	}
+
+	return NewItemEnvelopeFromEncrypted(*encryptedEnvelope)
 }
 
 func validStoredItem(

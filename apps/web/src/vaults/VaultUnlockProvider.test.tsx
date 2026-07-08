@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Account } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
@@ -14,6 +14,9 @@ import {
 } from "../crypto/cryptoTypes";
 import { useVaultUnlock } from "./useVaultUnlock";
 import { VaultUnlockProvider } from "./VaultUnlockProvider";
+
+const defaultTestVaultInactivityDelayMs = 30 * 60 * 1000;
+const fastVaultInactivityDelayMs = 100;
 
 const testAccount: Account = {
   id: "account-1",
@@ -72,17 +75,21 @@ function Providers({
   authStatus,
   children,
   provider,
+  inactivityDelayMs = defaultTestVaultInactivityDelayMs,
 }: {
   authStatus: AuthStatus;
   children: ReactNode;
   provider: CryptoProvider;
+  inactivityDelayMs?: number;
 }) {
   return (
     <AuthContext.Provider value={createAuthValue(authStatus)}>
       <CryptoContext.Provider
         value={{ provider, status: "ready", error: null }}
       >
-        <VaultUnlockProvider>{children}</VaultUnlockProvider>
+        <VaultUnlockProvider inactivityDelayMs={inactivityDelayMs}>
+          {children}
+        </VaultUnlockProvider>
       </CryptoContext.Provider>
     </AuthContext.Provider>
   );
@@ -156,7 +163,29 @@ function VaultUnlockControls() {
   );
 }
 
+function setVisibilityState(value: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value,
+  });
+}
+
+function waitForMilliseconds(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
 describe("VaultUnlockProvider", () => {
+  beforeEach(() => {
+    setVisibilityState("visible");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("creates an unlocked in-memory vault session", async () => {
     const provider = createTestCryptoProvider();
 
@@ -166,12 +195,14 @@ describe("VaultUnlockProvider", () => {
       </Providers>,
     );
 
-    expect(screen.getByTestId("unlock-status")).toHaveTextContent("locked");
+    expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
 
     fireEvent.click(screen.getByRole("button", { name: "Create session" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("unlock-status")).toHaveTextContent("unlocked");
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
     });
 
     expect(screen.getByTestId("unlocked-count")).toHaveTextContent("1");
@@ -193,7 +224,9 @@ describe("VaultUnlockProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("unlock-status")).toHaveTextContent("unlocked");
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
     });
 
     expect(screen.getByTestId("first-key-byte")).toHaveTextContent("11");
@@ -235,12 +268,14 @@ describe("VaultUnlockProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create session" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("unlock-status")).toHaveTextContent("unlocked");
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Lock vault" }));
 
-    expect(screen.getByTestId("unlock-status")).toHaveTextContent("locked");
+    expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
     expect(screen.getByTestId("first-key-byte")).toHaveTextContent("none");
   });
 
@@ -256,7 +291,9 @@ describe("VaultUnlockProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create session" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("unlock-status")).toHaveTextContent("unlocked");
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
     });
 
     rerender(
@@ -265,7 +302,97 @@ describe("VaultUnlockProvider", () => {
       </Providers>,
     );
 
-    expect(screen.getByTestId("unlock-status")).toHaveTextContent("locked");
+    expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
+    expect(screen.getByTestId("unlocked-count")).toHaveTextContent("0");
+  });
+
+  it("locks all vaults after inactivity", async () => {
+    const provider = createTestCryptoProvider();
+
+    render(
+      <Providers
+        authStatus="authenticated"
+        provider={provider}
+        inactivityDelayMs={fastVaultInactivityDelayMs}
+      >
+        <VaultUnlockControls />
+      </Providers>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
+      expect(screen.getByTestId("unlocked-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("first-key-byte")).toHaveTextContent("none");
+    });
+  });
+
+  it("restarts the vault auto-lock timer after user activity", async () => {
+    const provider = createTestCryptoProvider();
+
+    render(
+      <Providers
+        authStatus="authenticated"
+        provider={provider}
+        inactivityDelayMs={fastVaultInactivityDelayMs}
+      >
+        <VaultUnlockControls />
+      </Providers>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
+    });
+
+    await waitForMilliseconds(fastVaultInactivityDelayMs / 2);
+
+    fireEvent.keyDown(document);
+
+    await waitForMilliseconds(fastVaultInactivityDelayMs / 2 + 10);
+
+    expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^unlocked$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
+    });
+  });
+
+  it("locks all vaults when the document becomes hidden", async () => {
+    const provider = createTestCryptoProvider();
+
+    render(
+      <Providers
+        authStatus="authenticated"
+        provider={provider}
+        inactivityDelayMs={fastVaultInactivityDelayMs}
+      >
+        <VaultUnlockControls />
+      </Providers>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unlock-status")).toHaveTextContent(
+        /^unlocked$/,
+      );
+    });
+
+    setVisibilityState("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+
+    expect(screen.getByTestId("unlock-status")).toHaveTextContent(/^locked$/);
     expect(screen.getByTestId("unlocked-count")).toHaveTextContent("0");
   });
 });

@@ -34,19 +34,14 @@ func newItemEncryptedPayloadResource(
 	}, nil
 }
 
-func encryptedItemEnvelopePointerFromResource(
+func requiredEncryptedItemEnvelopeFromResource(
 	resource itemEncryptedPayloadResource,
-) (*vault.EncryptedItemEnvelope, error) {
+) (vault.EncryptedItemEnvelope, error) {
 	if resource.empty() {
-		return nil, nil
+		return vault.EncryptedItemEnvelope{}, vault.ErrItemEncryptedPayloadEmpty
 	}
 
-	envelope, err := encryptedItemEnvelopeFromResource(resource)
-	if err != nil {
-		return nil, err
-	}
-
-	return &envelope, nil
+	return encryptedItemEnvelopeFromResource(resource)
 }
 
 func encryptedItemEnvelopeFromResource(

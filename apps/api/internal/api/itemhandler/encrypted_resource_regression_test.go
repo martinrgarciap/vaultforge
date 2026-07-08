@@ -32,17 +32,12 @@ func TestNewItemResourceForEncryptedItemDoesNotExposePlaintextPayload(t *testing
 		UpdatedAt: time.Date(2026, time.July, 8, 12, 5, 0, 0, time.UTC),
 	}
 
-	resource := newItemResource(storedItem)
-
-	if len(resource.Payload) != 0 {
-		t.Fatalf("encrypted resource exposed plaintext payload = %s", resource.Payload)
+	resource, err := newItemResource(storedItem)
+	if err != nil {
+		t.Fatalf("newItemResource() error = %v", err)
 	}
 
-	if resource.EncryptedPayload == nil {
-		t.Fatal("encrypted resource omitted encryptedPayload")
-	}
-
-	envelope, err := encryptedItemEnvelopeFromResource(*resource.EncryptedPayload)
+	envelope, err := encryptedItemEnvelopeFromResource(resource.EncryptedPayload)
 	if err != nil {
 		t.Fatalf("parse encrypted payload resource: %v", err)
 	}
@@ -75,5 +70,25 @@ func TestNewItemResourceForEncryptedItemDoesNotExposePlaintextPayload(t *testing
 
 	if !strings.Contains(responseBody, `"encryptedPayload"`) {
 		t.Fatal("encrypted item response omitted encryptedPayload field")
+	}
+}
+
+func TestNewItemResourceRejectsPlaintextStoredItem(t *testing.T) {
+	t.Parallel()
+
+	storedItem := vault.Item{
+		ID:        itemHandlerTestItemID,
+		VaultID:   itemHandlerTestVaultID,
+		Type:      vault.ItemTypeSecureNote,
+		Payload:   []byte(`{"secret":"plaintext-must-not-be-exposed"}`),
+		Nonce:     vault.SyntheticItemNonce(),
+		Version:   1,
+		CreatedAt: time.Date(2026, time.July, 8, 13, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, time.July, 8, 13, 5, 0, 0, time.UTC),
+	}
+
+	_, err := newItemResource(storedItem)
+	if err == nil {
+		t.Fatal("newItemResource() error = nil, want an error")
 	}
 }

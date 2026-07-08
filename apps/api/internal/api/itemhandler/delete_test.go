@@ -1,6 +1,7 @@
 package itemhandler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,9 +32,11 @@ func TestHandlerSoftDeletesVaultItem(t *testing.T) {
 			ID:      itemHandlerCreateTestItemID,
 			VaultID: itemHandlerCreateTestVaultID,
 			Type:    vault.ItemTypeSecureNote,
-			Payload: json.RawMessage(
-				`{"value":"synthetic"}`,
+			Payload: bytes.Repeat(
+				[]byte{0x41},
+				vault.ItemEncryptedPayloadTagBytes+4,
 			),
+			Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 			Version:   2,
 			CreatedAt: deletedAt.Add(-time.Hour),
 			UpdatedAt: deletedAt,
@@ -152,9 +155,11 @@ func TestHandlerRestoresVaultItem(t *testing.T) {
 			ID:      itemHandlerCreateTestItemID,
 			VaultID: itemHandlerCreateTestVaultID,
 			Type:    vault.ItemTypeSecureNote,
-			Payload: json.RawMessage(
-				`{"value":"synthetic"}`,
+			Payload: bytes.Repeat(
+				[]byte{0x41},
+				vault.ItemEncryptedPayloadTagBytes+4,
 			),
+			Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 			Version:   3,
 			CreatedAt: updatedAt.Add(-time.Hour),
 			UpdatedAt: updatedAt,

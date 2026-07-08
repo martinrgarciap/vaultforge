@@ -41,6 +41,18 @@ func (handler *Handler) SoftDelete(
 		return
 	}
 
+	resourceBody, err := newItemResource(deletedItem)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
+		return
+	}
+
 	w.Header().Set(
 		"ETag",
 		itemETag(deletedItem.Version),
@@ -50,7 +62,7 @@ func (handler *Handler) SoftDelete(
 		w,
 		http.StatusOK,
 		itemResponse{
-			Item: newItemResource(deletedItem),
+			Item: resourceBody,
 		},
 	); err != nil {
 		handler.logResponseFailure(r)
@@ -89,6 +101,18 @@ func (handler *Handler) Restore(
 		return
 	}
 
+	resourceBody, err := newItemResource(restoredItem)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
+		return
+	}
+
 	w.Header().Set(
 		"ETag",
 		itemETag(restoredItem.Version),
@@ -98,7 +122,7 @@ func (handler *Handler) Restore(
 		w,
 		http.StatusOK,
 		itemResponse{
-			Item: newItemResource(restoredItem),
+			Item: resourceBody,
 		},
 	); err != nil {
 		handler.logResponseFailure(r)

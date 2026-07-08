@@ -106,7 +106,7 @@ func TestServiceCreateItemStoresEncryptedEnvelopeWithoutSyntheticPayload(t *test
 	}
 
 	store := &encryptedItemServiceRegressionStore{}
-	service := &Service{items: store}
+	service := &Service{items: store, vaults: &itemServiceTestStore{}}
 
 	createdItem, err := service.CreateItem(
 		context.Background(),
@@ -148,7 +148,7 @@ func TestServiceUpdateItemStoresEncryptedEnvelopeWithoutSyntheticPayload(t *test
 	}
 
 	store := &encryptedItemServiceRegressionStore{}
-	service := &Service{items: store}
+	service := &Service{items: store, vaults: &itemServiceTestStore{}}
 
 	updatedItem, err := service.UpdateItem(
 		context.Background(),
@@ -181,57 +181,118 @@ func TestServiceUpdateItemStoresEncryptedEnvelopeWithoutSyntheticPayload(t *test
 	}
 }
 
-func TestServiceWriteRejectsMixedPlaintextAndEncryptedPayloads(t *testing.T) {
+func TestServiceWriteRejectsMissingEncryptedPayload(t *testing.T) {
 	t.Parallel()
 
-	blob := validEncryptedRegressionBlob(t)
-	encryptedEnvelope, err := NewEncryptedItemEnvelope(blob)
-	if err != nil {
-		t.Fatalf("NewEncryptedItemEnvelope() error = %v", err)
+	store := &encryptedItemServiceRegressionStore{}
+	service := &Service{items: store, vaults: &itemServiceTestStore{}}
+
+	_, err := service.CreateItem(
+		context.Background(),
+		CreateItemInput{
+			OwnerID:        itemServiceTestOwnerID,
+			VaultID:        itemServiceTestVaultID,
+			Type:           ItemTypeSecureNote,
+			IdempotencyKey: itemServiceTestIdempotencyKey,
+			CorrelationID:  itemServiceTestRequest,
+		},
+	)
+	if !errors.Is(err, ErrItemEncryptedPayloadEmpty) {
+		t.Fatalf("CreateItem() error = %v, want %v", err, ErrItemEncryptedPayloadEmpty)
 	}
 
-	store := &encryptedItemServiceRegressionStore{}
-	service := &Service{items: store}
+	if store.createCalls != 0 {
+		t.Fatal("missing encrypted create reached the store")
+	}
 
-	_, err = service.CreateItem(
+	_, err = service.UpdateItem(
+		context.Background(),
+		UpdateItemInput{
+			OwnerID:         itemServiceTestOwnerID,
+			VaultID:         itemServiceTestVaultID,
+			ItemID:          itemServiceTestItemID,
+			Type:            ItemTypeSecureNote,
+			ExpectedVersion: 1,
+			CorrelationID:   itemServiceTestRequest,
+		},
+	)
+	if !errors.Is(err, ErrItemEncryptedPayloadEmpty) {
+		t.Fatalf("UpdateItem() error = %v, want %v", err, ErrItemEncryptedPayloadEmpty)
+	}
+
+	if store.updateCalls != 0 {
+		t.Fatal("missing encrypted update reached the store")
+	}
+}
+
+func TestServiceCreateItemRejectsUninitializedVaultCryptoMetadata(t *testing.T) {
+	t.Parallel()
+
+	store := &itemServiceTestStore{
+		vaultResult: uninitializedEncryptedRegressionVault(),
+	}
+
+	service := NewService(store)
+
+	_, err := service.CreateItem(
 		context.Background(),
 		CreateItemInput{
 			OwnerID:           itemServiceTestOwnerID,
 			VaultID:           itemServiceTestVaultID,
 			Type:              ItemTypeSecureNote,
-			Payload:           json.RawMessage(`{"secret":"do-not-mix"}`),
-			EncryptedEnvelope: &encryptedEnvelope,
+			EncryptedEnvelope: validItemServiceEncryptedEnvelopePointer(t),
 			IdempotencyKey:    itemServiceTestIdempotencyKey,
 			CorrelationID:     itemServiceTestRequest,
 		},
 	)
-	if !errors.Is(err, ErrItemPayloadInvalid) {
-		t.Fatalf("CreateItem() error = %v, want %v", err, ErrItemPayloadInvalid)
+	if !errors.Is(err, ErrVaultCryptoMetadataInvalid) {
+		t.Fatalf("CreateItem() error = %v, want %v", err, ErrVaultCryptoMetadataInvalid)
 	}
 
 	if store.createCalls != 0 {
-		t.Fatal("mixed plaintext and encrypted create reached the store")
+		t.Fatal("uninitialized vault create reached the item store")
+	}
+}
+
+func TestServiceUpdateItemRejectsUninitializedVaultCryptoMetadata(t *testing.T) {
+	t.Parallel()
+
+	store := &itemServiceTestStore{
+		vaultResult: uninitializedEncryptedRegressionVault(),
 	}
 
-	_, err = service.UpdateItem(
+	service := NewService(store)
+
+	_, err := service.UpdateItem(
 		context.Background(),
 		UpdateItemInput{
 			OwnerID:           itemServiceTestOwnerID,
 			VaultID:           itemServiceTestVaultID,
 			ItemID:            itemServiceTestItemID,
 			Type:              ItemTypeSecureNote,
-			Payload:           json.RawMessage(`{"secret":"do-not-mix"}`),
-			EncryptedEnvelope: &encryptedEnvelope,
+			EncryptedEnvelope: validItemServiceEncryptedEnvelopePointer(t),
 			ExpectedVersion:   1,
 			CorrelationID:     itemServiceTestRequest,
 		},
 	)
-	if !errors.Is(err, ErrItemPayloadInvalid) {
-		t.Fatalf("UpdateItem() error = %v, want %v", err, ErrItemPayloadInvalid)
+	if !errors.Is(err, ErrVaultCryptoMetadataInvalid) {
+		t.Fatalf("UpdateItem() error = %v, want %v", err, ErrVaultCryptoMetadataInvalid)
 	}
 
 	if store.updateCalls != 0 {
-		t.Fatal("mixed plaintext and encrypted update reached the store")
+		t.Fatal("uninitialized vault update reached the item store")
+	}
+}
+
+func uninitializedEncryptedRegressionVault() Vault {
+	now := time.Date(2026, time.July, 8, 18, 30, 0, 0, time.UTC)
+
+	return Vault{
+		ID:        itemServiceTestVaultID,
+		OwnerID:   itemServiceTestOwnerID,
+		Name:      "Development",
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 }
 

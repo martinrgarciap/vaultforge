@@ -1,6 +1,10 @@
 package vault
 
-import "context"
+import (
+	"bytes"
+	"context"
+	"time"
+)
 
 type itemServiceTestStore struct {
 	createResult             Item
@@ -30,9 +34,16 @@ type itemServiceTestStore struct {
 	lastSoftDeleteInput      SoftDeleteItemStoreInput
 	lastRestoreInput         RestoreItemStoreInput
 	lastPermanentDeleteInput PermanentDeleteItemStoreInput
+
+	vaultResult      Vault
+	vaultErr         error
+	vaultGetCalls    int
+	lastVaultOwnerID string
+	lastVaultID      string
 }
 
 var _ ItemStore = (*itemServiceTestStore)(nil)
+var _ Store = (*itemServiceTestStore)(nil)
 
 func (store *itemServiceTestStore) CreateItem(
 	_ context.Context,
@@ -126,4 +137,71 @@ func (store *itemServiceTestStore) PermanentDeleteItem(
 	store.lastPermanentDeleteInput = input
 
 	return store.permanentDeleteErr
+}
+
+func (*itemServiceTestStore) Create(
+	context.Context,
+	CreateStoreInput,
+) (Vault, error) {
+	return Vault{}, nil
+}
+
+func (*itemServiceTestStore) ListOwned(
+	context.Context,
+	string,
+) ([]Vault, error) {
+	return make([]Vault, 0), nil
+}
+
+func (store *itemServiceTestStore) GetOwned(
+	_ context.Context,
+	ownerID string,
+	vaultID string,
+) (Vault, error) {
+	store.vaultGetCalls++
+	store.lastVaultOwnerID = ownerID
+	store.lastVaultID = vaultID
+
+	if store.vaultErr != nil {
+		return Vault{}, store.vaultErr
+	}
+
+	if store.vaultResult.ID != "" {
+		return store.vaultResult, nil
+	}
+
+	return initializedItemServiceTestVault(), nil
+}
+
+func (*itemServiceTestStore) RenameOwned(
+	context.Context,
+	RenameStoreInput,
+) (Vault, error) {
+	return Vault{}, nil
+}
+
+func (*itemServiceTestStore) DeleteOwned(
+	context.Context,
+	DeleteStoreInput,
+) error {
+	return nil
+}
+
+func initializedItemServiceTestVault() Vault {
+	now := time.Date(2026, time.July, 8, 18, 0, 0, 0, time.UTC)
+
+	cryptoVersion := CurrentVaultCryptoVersion
+	kdfVersion := CurrentVaultKDFVersion
+
+	return Vault{
+		ID:            itemServiceTestVaultID,
+		OwnerID:       itemServiceTestOwnerID,
+		Name:          "Development",
+		CryptoVersion: &cryptoVersion,
+		KDFVersion:    &kdfVersion,
+		Salt:          bytes.Repeat([]byte{0x41}, MinVaultCryptoSaltBytes),
+		WrappedKey:    bytes.Repeat([]byte{0x42}, MinVaultWrappedKeyBytes),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
 }

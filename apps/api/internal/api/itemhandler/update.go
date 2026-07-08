@@ -1,7 +1,6 @@
 package itemhandler
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -14,7 +13,6 @@ import (
 
 type updateItemRequest struct {
 	Type             vault.ItemType               `json:"type"`
-	Payload          json.RawMessage              `json:"payload"`
 	EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
 }
 
@@ -46,7 +44,7 @@ func (handler *Handler) Update(
 		return
 	}
 
-	encryptedEnvelope, err := encryptedItemEnvelopePointerFromResource(
+	encryptedEnvelope, err := requiredEncryptedItemEnvelopeFromResource(
 		requestBody.EncryptedPayload,
 	)
 	if err != nil {
@@ -61,8 +59,7 @@ func (handler *Handler) Update(
 			VaultID:           chi.URLParam(r, "vaultID"),
 			ItemID:            chi.URLParam(r, "itemID"),
 			Type:              requestBody.Type,
-			Payload:           requestBody.Payload,
-			EncryptedEnvelope: encryptedEnvelope,
+			EncryptedEnvelope: &encryptedEnvelope,
 			ExpectedVersion:   expectedVersion,
 			CorrelationID: chimiddleware.GetReqID(
 				r.Context(),
@@ -71,6 +68,18 @@ func (handler *Handler) Update(
 	)
 	if err != nil {
 		handler.writeServiceError(w, r, err)
+		return
+	}
+
+	resourceBody, err := newItemResource(updatedItem)
+	if err != nil {
+		handler.writeError(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"internal_error",
+			"An unexpected error occurred.",
+		)
 		return
 	}
 
@@ -83,7 +92,7 @@ func (handler *Handler) Update(
 		w,
 		http.StatusOK,
 		itemResponse{
-			Item: newItemResource(updatedItem),
+			Item: resourceBody,
 		},
 	); err != nil {
 		handler.logResponseFailure(r)

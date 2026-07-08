@@ -85,6 +85,34 @@ function validEncryptedBlob(): Uint8Array {
   );
 }
 
+function encryptedPayloadForPayload(payload: unknown) {
+  const plaintext = encodeItemPlaintext(payload as Record<string, unknown>);
+  const prefix = validEncryptedBlob();
+  const blob = new Uint8Array(prefix.length + plaintext.length);
+
+  blob.set(prefix);
+  blob.set(plaintext, prefix.length);
+
+  return {
+    version: CRYPTO_ENVELOPE_VERSION,
+    algorithm: itemEncryptedPayloadAlgorithm,
+    blob: bytesToBase64(blob),
+  };
+}
+
+function encryptedItemResource<T extends { payload: unknown }>(item: T) {
+  const { payload, ...resource } = item;
+
+  return {
+    ...resource,
+    encryptedPayload: encryptedPayloadForPayload(payload),
+  };
+}
+
+function decryptTestEnvelope(envelope: ItemCryptoEnvelope): Uint8Array {
+  return envelope.blob.slice(validEncryptedBlob().length);
+}
+
 function createTestItemEnvelope(): ItemCryptoEnvelope {
   return {
     version: CRYPTO_ENVELOPE_VERSION,
@@ -109,12 +137,8 @@ function createTestCryptoProvider(): CryptoProvider {
     encryptItem: vi.fn(
       async (): Promise<ItemCryptoEnvelope> => createTestItemEnvelope(),
     ),
-    decryptItem: vi.fn(async () =>
-      encodeItemPlaintext({
-        title: "Encrypted Test Login",
-        username: "encrypted@example.com",
-        password: "synthetic-password",
-      }),
+    decryptItem: vi.fn(async (_vaultKey, envelope) =>
+      decryptTestEnvelope(envelope),
     ),
     wrapKey: vi.fn(
       async (): Promise<WrappedKeyEnvelope> => createTestWrappedKeyEnvelope(),
@@ -198,7 +222,7 @@ function responseFor(item = activeItem): RequestImplementation {
     }
 
     return {
-      item,
+      item: encryptedItemResource(item),
     };
   };
 }
@@ -247,18 +271,18 @@ describe("ItemDetailPage", () => {
   });
 
   it("decrypts an encrypted item detail response", async () => {
-    const encryptedItem = {
+    const encryptedItem = encryptedItemResource({
       id: "item-123",
       type: "login",
-      encryptedPayload: {
-        version: CRYPTO_ENVELOPE_VERSION,
-        algorithm: itemEncryptedPayloadAlgorithm,
-        blob: bytesToBase64(validEncryptedBlob()),
+      payload: {
+        title: "Encrypted Test Login",
+        username: "encrypted@example.com",
+        password: "synthetic-password",
       },
       version: 1,
       createdAt: "2026-07-08T12:00:00Z",
       updatedAt: "2026-07-08T12:00:00Z",
-    };
+    });
 
     const requestMock = vi.fn(async (path: string) => {
       if (path === "/v1/vaults/vault-123") {
@@ -303,12 +327,12 @@ describe("ItemDetailPage", () => {
 
         if (options?.method === "PUT") {
           return {
-            item: updatedItem,
+            item: encryptedItemResource(updatedItem),
           };
         }
 
         return {
-          item: activeItem,
+          item: encryptedItemResource(activeItem),
         };
       },
     );
@@ -388,18 +412,18 @@ describe("ItemDetailPage", () => {
 
         if (options?.method === "DELETE" && !path.endsWith("/permanent")) {
           return {
-            item: deletedItem,
+            item: encryptedItemResource(deletedItem),
           };
         }
 
         if (path.includes("state=deleted")) {
           return {
-            item: deletedItem,
+            item: encryptedItemResource(deletedItem),
           };
         }
 
         return {
-          item: activeItem,
+          item: encryptedItemResource(activeItem),
         };
       },
     );
@@ -472,18 +496,18 @@ describe("ItemDetailPage", () => {
           restored = true;
 
           return {
-            item: restoredItem,
+            item: encryptedItemResource(restoredItem),
           };
         }
 
         if (restored && path.includes("state=active")) {
           return {
-            item: restoredItem,
+            item: encryptedItemResource(restoredItem),
           };
         }
 
         return {
-          item: deletedItem,
+          item: encryptedItemResource(deletedItem),
         };
       },
     );
@@ -532,7 +556,7 @@ describe("ItemDetailPage", () => {
         }
 
         return {
-          item: deletedItem,
+          item: encryptedItemResource(deletedItem),
         };
       },
     );
@@ -595,7 +619,7 @@ describe("ItemDetailPage", () => {
         }
 
         return {
-          item: activeItem,
+          item: encryptedItemResource(activeItem),
         };
       },
     );

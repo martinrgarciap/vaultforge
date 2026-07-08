@@ -24,13 +24,7 @@ func TestHandlerCreatesVaultItem(t *testing.T) {
 	router := newItemHandlerTestRouter(service)
 
 	request := newCreateItemTestRequest(
-		`{
-			"type": "api_key",
-			"payload": {
-				"token": "synthetic-token",
-				"label": "Development"
-			}
-		}`,
+		validEncryptedItemRequestBody(t, vault.ItemTypeAPIKey),
 		"application/json",
 		"item-create-request-123",
 	)
@@ -294,7 +288,7 @@ func TestHandlerCreateMapsServiceErrors(
 			router := newItemHandlerTestRouter(service)
 
 			request := newCreateItemTestRequest(
-				`{"type":"secure_note","payload":{}}`,
+				validEncryptedItemRequestBody(t, vault.ItemTypeSecureNote),
 				"application/json",
 				"item-create-request-123",
 			)
@@ -337,7 +331,7 @@ func TestHandlerCreateRejectsMissingPrincipal(
 	)
 
 	request := newCreateItemTestRequest(
-		`{"type":"secure_note","payload":{}}`,
+		validEncryptedItemRequestBody(t, vault.ItemTypeSecureNote),
 		"application/json",
 		"item-create-request-123",
 	)
@@ -365,4 +359,53 @@ func TestHandlerCreateRejectsMissingPrincipal(
 			"service was called without a principal",
 		)
 	}
+}
+
+func TestHandlerCreateRejectsPlaintextPayload(t *testing.T) {
+	t.Parallel()
+
+	service := &itemHandlerTestService{}
+	router := newItemHandlerTestRouter(service)
+
+	request := newCreateItemTestRequest(
+		`{
+			"type": "secure_note",
+			"payload": {
+				"secret": "plaintext-must-not-be-accepted"
+			}
+		}`,
+		"application/json",
+		"item-create-request-123",
+	)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assertItemHandlerTestError(
+		t,
+		recorder,
+		http.StatusBadRequest,
+		"invalid_request",
+	)
+
+	if service.createCalls != 0 {
+		t.Fatal("service was called for a plaintext payload create request")
+	}
+}
+
+func validEncryptedItemRequestBody(t *testing.T, itemType vault.ItemType) string {
+	t.Helper()
+
+	body, err := json.Marshal(struct {
+		Type             vault.ItemType               `json:"type"`
+		EncryptedPayload itemEncryptedPayloadResource `json:"encryptedPayload"`
+	}{
+		Type:             itemType,
+		EncryptedPayload: validItemEncryptedPayloadResource(),
+	})
+	if err != nil {
+		t.Fatalf("marshal encrypted item request body: %v", err)
+	}
+
+	return string(body)
 }

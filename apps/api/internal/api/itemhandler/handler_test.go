@@ -1,6 +1,7 @@
 package itemhandler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -332,9 +333,11 @@ func itemHandlerCreateResult() vault.Item {
 		ID:      itemHandlerCreateTestItemID,
 		VaultID: itemHandlerCreateTestVaultID,
 		Type:    vault.ItemTypeAPIKey,
-		Payload: json.RawMessage(
-			`{"label":"Development","token":"synthetic-token"}`,
+		Payload: bytes.Repeat(
+			[]byte{0x41},
+			vault.ItemEncryptedPayloadTagBytes+4,
 		),
+		Nonce:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		Version:   1,
 		CreatedAt: createdAt,
 		UpdatedAt: createdAt,
