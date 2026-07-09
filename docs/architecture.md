@@ -10,10 +10,10 @@ Its architecture intentionally separates:
 2. Session authentication and authorization
 3. Vault unlocking and encryption
 4. Persistence
-5. Reliability and asynchronous processing
+5. Reliability controls
 6. Observability
 
-The project is being built incrementally. Components marked as planned are part of the target architecture but are not currently running.
+The implemented v1 architecture runs a Go API, React/Vite browser client, Rust hash-service, Rust password-service, PostgreSQL, Redis, browser-side Rust WASM crypto, and optional local OpenTelemetry tracing.
 
 ## Current architecture
 
@@ -31,7 +31,8 @@ flowchart LR
     AS[Authentication Service]
     SS[Session Service]
     VS[Vault Service]
-    H[Local Go Argon2id Adapter]
+    H[Rust hash-service]
+    PS[Rust password-service]
     T[Ed25519 Token Manager]
     P[(PostgreSQL)]
     R[(Redis)]
@@ -58,6 +59,7 @@ flowchart LR
     SH --> SC
     AH --> AS
     AH --> SS
+    A --> PS
     SH --> SS
     VH --> VS
     IH --> VS
@@ -191,7 +193,7 @@ GET /health/live
     └── Process-only liveness, no dependency calls
 
 GET /health/ready
-    └── Two-second composite PostgreSQL and Redis ping
+    └── Two-second composite PostgreSQL, Redis, hash-service, and password-service ping
 
 GET /health/diagnostics
     └── Sanitized service, version, and commit only
@@ -223,7 +225,8 @@ Optional trace export
 - Writes sanitized audit events through a transactional outbox.
 - Normalizes account emails.
 - Applies account-password policy.
-- Calls the replaceable password hasher.
+- Calls the Rust hash-service for account password hashing and verification.
+- Calls the Rust password-service for public password generation and strength checks.
 - Issues and verifies Ed25519 access tokens.
 - Generates and rotates opaque refresh tokens.
 - Delivers refresh tokens through host-only `HttpOnly`, `SameSite=Strict` cookies.
@@ -233,20 +236,20 @@ Optional trace export
 - Applies Redis-backed distributed request limits.
 - Applies failed-login tracking and temporary lockouts.
 - Uses HMAC-protected Redis identities and ignores forwarded client-IP headers.
-- Exposes dependency-free liveness and PostgreSQL-plus-Redis readiness.
+- Exposes dependency-free liveness and composite dependency readiness.
 - Exposes sanitized build diagnostics.
 - Exposes loopback-only low-cardinality HTTP metrics.
 - Exports optional normalized HTTP, PostgreSQL, and Redis traces.
 - Correlates safe request logs with trace IDs.
 - Applies configurable HTTP and dependency deadlines.
 - Propagates context cancellation through services and repositories.
-- Maps PostgreSQL, Redis, and password-hasher failures to safe public responses.
+- Maps PostgreSQL, Redis, hash-service, and password-service failures to safe public responses.
 - Logs safe request metadata only.
 - Accepts encrypted item payload envelopes for normal browser item workflows.
 
-### Local Argon2id adapter
+### Rust hash-service
 
-- Implements the `PasswordHasher` interface.
+- Implements the account `PasswordHasher` boundary over gRPC.
 - Normalizes account passwords using Unicode NFC.
 - Generates a fresh random salt for each hash.
 - Produces a PHC-style Argon2id encoded value.
@@ -255,7 +258,13 @@ Optional trace export
 - Rejects malformed hashes and unsafe parameter values.
 - Retains no password after the operation completes.
 
-The local adapter is temporary. It exists so the authentication contract can be completed before the Rust service is built.
+### Rust password-service
+
+- Generates synthetic account passwords for the public password generator.
+- Rates account password strength for the generator page and registration form.
+- Uses bounded inputs and safe public errors.
+- Exposes gRPC health and reflection.
+- Retains no submitted password after the operation completes.
 
 ### Access-token manager
 
@@ -303,7 +312,7 @@ Currently stores:
 - Session expiration and revocation timestamps
 - Session user-agent metadata
 - Owner-scoped vault metadata
-- Synthetic generic item payloads during the current phase
+- Encrypted item payload envelopes
 - Item versions, timestamps, and deletion state
 - Sanitized transactional outbox records
 - Durable item-creation idempotency records
@@ -525,28 +534,47 @@ Outbox payloads contain only allow-listed versioned metadata. They never include
 ## Implemented v1 architecture
 
 ```mermaid
-flowchart TD
-    Browser["Browser<br/>React + TypeScript"] --> Crypto["Rust WASM crypto package<br/>derive KEK, wrap/unwrap vault key,<br/>encrypt/decrypt item payloads"]
-    Crypto --> Browser
+flowchart LR
+    subgraph Vercel["Vercel"]
+        Frontend["React + TypeScript + Vite frontend"]
+    end
 
-    Browser --> API["Go REST API<br/>Chi, middleware, auth, vault/item domain"]
+    subgraph Browser["Browser"]
+        App["VaultForge UI"]
+        Crypto["Rust WASM crypto<br/>vault setup/unlock<br/>wrap/unwrap vault key<br/>encrypt/decrypt item values"]
+        BrowserOnly["Passphrase, unwrapped vault key,<br/>and decrypted item values stay browser-side"]
+    end
 
-    API --> Postgres["PostgreSQL<br/>users, sessions, vaults,<br/>encrypted item envelopes,<br/>versions, idempotency, audit metadata"]
+    subgraph Railway["Railway"]
+        API["Go API<br/>REST, auth, sessions,<br/>vault/item metadata"]
 
-    API --> Redis["Redis<br/>rate limits, failed-login counters,<br/>temporary lockouts"]
+        subgraph RustServices["Railway internal Rust services"]
+            HashService["hash-service<br/>Argon2id hash/verify"]
+            PasswordService["password-service<br/>generate + strength"]
+        end
 
-    API --> HashService["Rust gRPC hash-service<br/>Argon2id password hash/verify"]
+        Postgres["PostgreSQL<br/>users, sessions, vaults,<br/>encrypted item payloads,<br/>versions, idempotency"]
 
-    API --> OTEL["OpenTelemetry instrumentation<br/>local Collector + Jaeger"]
+        Redis["Redis<br/>rate limits, failed-login counters,<br/>temporary lockouts"]
+    end
 
-    Browser -. "vault passphrase, unwrapped vault key,<br/>and decrypted item values remain browser-side" .-> Browser
+    Frontend -->|serves app| App
+    App --> Crypto
+    Crypto --> BrowserOnly
 
-    API -. "stores ciphertext and metadata only<br/>for item payloads" .-> Postgres
+    App -->|HTTPS JSON + cookies| API
+    App -->|encrypted item payloads only| API
+    App -->|POST /v1/passwords/generate<br/>POST /v1/passwords/strength| API
+
+    API -->|gRPC| HashService
+    API -->|gRPC| PasswordService
+    API --> Postgres
+    API --> Redis
+
+    API -. "stores ciphertext and metadata only<br/>for vault item payloads" .-> Postgres
 ```
 
-RabbitMQ and audit-worker messaging are out of scope for VaultForge v1. The existing PostgreSQL transactional outbox preserves sanitized audit intent, but no broker or worker is required for the implemented account, vault, encryption, or deployment workflows.
-
-## Target component boundaries
+## Current component boundaries
 
 ### Browser client
 
@@ -595,7 +623,7 @@ Current responsibilities:
 
 - Expose REST and JSON routes.
 - Manage users, sessions, authorization, vault metadata, and encrypted payloads.
-- Call the Rust hashing service through `PasswordHasher`.
+- Call the Rust hash-service through `PasswordHasher`.
 - Store opaque encrypted envelopes.
 - Coordinate Redis reliability controls.
 - Write sanitized events through a transactional outbox.
@@ -611,6 +639,18 @@ Current responsibilities:
 - Expose health and metrics.
 - Enforce deadlines and bounded input.
 - Retain no passwords.
+- Use no application database.
+- Have no access to vault data.
+
+### Rust password-service
+
+Current responsibilities:
+
+- Generate synthetic account passwords for the public password generator page.
+- Rate account password strength for the generator page and registration form.
+- Enforce configured length bounds and character-set validation.
+- Return safe validation and dependency errors.
+- Expose gRPC health and reflection.
 - Use no application database.
 - Have no access to vault data.
 
@@ -636,15 +676,7 @@ Implemented responsibilities:
 
 Redis is not used for durable item idempotency because PostgreSQL already provides that source of truth.
 
-Future Redis use must remain limited to bounded operational metadata. Redis must never store passwords, raw tokens, encryption keys, vault payloads, decrypted data, or raw dependency errors.
-
-### Messaging scope
-
-RabbitMQ and audit-worker messaging are out of scope for VaultForge v1.
-
-The implemented application writes sanitized transactional audit intent records in PostgreSQL, but no message broker or background audit worker is required for the account, vault, browser encryption, item lifecycle, or deployment workflows.
-
-If messaging is added in a future project, messages must remain metadata-only and must never contain passwords, tokens, vault passphrases, encryption keys, decrypted vault data, item payloads, or raw dependency errors.
+Redis use must remain limited to bounded operational metadata. Redis must never store passwords, raw tokens, encryption keys, vault payloads, decrypted data, or raw dependency errors.
 
 ## Account authentication versus vault encryption
 
@@ -657,7 +689,7 @@ They remain separate so that:
 - The server can authenticate a user without learning the vault key.
 - Changing the account password does not require re-encrypting vault items.
 - Changing the vault passphrase can re-wrap the vault key independently.
-- The password-hashing service has no reason to access vault records.
+- The hash-service has no reason to access vault records.
 - Backend services cannot decrypt stored vault content.
 
 Both workflows may use Argon2id, but for different purposes, with separate parameters, salts, code, and documentation.
@@ -668,14 +700,15 @@ Both workflows may use Argon2id, but for different purposes, with separate param
 apps/api                Go HTTP API
 apps/web                React and TypeScript browser client
 services/hash-service   Rust gRPC Argon2id account-password hashing service
-packages/proto          Planned shared Protocol Buffer contracts
+services/password-service Rust gRPC password generation and strength service
+packages/proto          Shared Protocol Buffer contracts
 deployments             Compose, local PostgreSQL, Redis, OpenTelemetry, and Jaeger configuration
 docs                    Architecture, threat model, testing policy, and runbooks
 ```
 
-## Current roadmap position
+## Implemented v1 status
 
-Completed:
+Implemented:
 
 - Product and security boundaries
 - Repository and CI foundation
@@ -707,6 +740,10 @@ Completed:
 - Real-stack Playwright coverage with PostgreSQL and Redis
 - Automated accessibility and responsive-layout checks
 - Redis client lifecycle and composite readiness
+- Rust hash-service for Argon2id account password hashing and verification
+- Rust password-service for password generation and strength checks
+- Public password generator page
+- Registration password-strength feedback
 - Distributed request limits
 - Failed-login tracking and temporary lockouts
 - Configurable HTTP and dependency timeouts
@@ -725,6 +762,6 @@ Completed:
 - Local OpenTelemetry Collector and Jaeger trace viewing
 - Safe trace-to-log correlation and telemetry redaction tests
 - Operational runbook for current dependencies and tracing
-- Go, web, browser E2E, and secret-scan GitHub Actions jobs
-
-The implemented v1 portfolio version uses Railway and Vercel for the public demo, Docker Compose for local dependencies, and no RabbitMQ or audit worker.
+- Go, web, Rust service, browser E2E, and secret-scan GitHub Actions jobs
+- Railway deployment for the Go API, Rust services, PostgreSQL, and Redis
+- Vercel deployment for the React/Vite frontend

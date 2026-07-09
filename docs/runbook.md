@@ -6,11 +6,10 @@ This runbook covers the currently implemented VaultForge components:
 - React client
 - PostgreSQL
 - Redis
+- Rust hash-service
+- Rust password-service
 - OpenTelemetry Collector
 - Jaeger
-
-RabbitMQ and an audit worker are optional future additions and are not part of
-the current incident procedures.
 
 VaultForge is a portfolio and learning project. Use synthetic data only. Do not
 paste credentials, tokens, cookies, signing keys, HMAC keys, database URLs,

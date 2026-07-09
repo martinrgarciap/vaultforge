@@ -330,9 +330,7 @@ The current backend includes:
 - Multi-factor authentication is not implemented.
 - A compromised browser could access decrypted data while a vault is unlocked.
 - Some non-secret metadata may remain visible to backend services.
-- The temporary Go Argon2id adapter will later be replaced by a Rust gRPC service.
 - The local OpenTelemetry Collector and Jaeger setup is development-only, uses temporary trace storage, and does not provide production alerting or retention.
-- RabbitMQ publication remains optional future work. Production deployment polish remains future roadmap work.
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat model, accepted risks, and trust boundaries.
 
