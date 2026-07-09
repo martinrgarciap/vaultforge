@@ -9,6 +9,7 @@ import (
 
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashclient"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/passwordclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
 )
@@ -20,15 +21,16 @@ const (
 )
 
 type Config struct {
-	Env            string
-	Addr           string
-	DatabaseURL    string
-	HTTP           HTTPConfig
-	Redis          redisclient.Config
-	HashService    hashclient.Config
-	RateLimits     RateLimitConfig
-	Tokens         session.TokenConfig
-	SessionCookies sessioncookie.Config
+	Env             string
+	Addr            string
+	DatabaseURL     string
+	HTTP            HTTPConfig
+	Redis           redisclient.Config
+	HashService     hashclient.Config
+	PasswordService passwordclient.Config
+	RateLimits      RateLimitConfig
+	Tokens          session.TokenConfig
+	SessionCookies  sessioncookie.Config
 }
 
 func LoadConfig() (Config, error) {
@@ -69,6 +71,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	passwordServiceConfig, err := loadPasswordServiceConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	rateLimitConfig, err := loadRateLimitConfig(cfg.Env)
 	if err != nil {
 		return Config{}, err
@@ -82,6 +89,7 @@ func LoadConfig() (Config, error) {
 	cfg.HTTP = httpConfig
 	cfg.Redis = redisConfig
 	cfg.HashService = hashServiceConfig
+	cfg.PasswordService = passwordServiceConfig
 	cfg.RateLimits = rateLimitConfig
 	cfg.Tokens = tokenConfig
 	cfg.SessionCookies = sessioncookie.NewConfig(
@@ -162,6 +170,35 @@ func loadHashServiceConfig() (hashclient.Config, error) {
 	)
 	if err != nil {
 		return hashclient.Config{}, err
+	}
+
+	return config, nil
+}
+
+func loadPasswordServiceConfig() (passwordclient.Config, error) {
+	dialTimeout, err := loadDuration(
+		"PASSWORD_SERVICE_DIAL_TIMEOUT",
+		passwordclient.DefaultDialTimeout,
+	)
+	if err != nil {
+		return passwordclient.Config{}, err
+	}
+
+	requestTimeout, err := loadDuration(
+		"PASSWORD_SERVICE_TIMEOUT",
+		passwordclient.DefaultRequestTimeout,
+	)
+	if err != nil {
+		return passwordclient.Config{}, err
+	}
+
+	config, err := passwordclient.NewConfig(
+		getEnv("PASSWORD_SERVICE_ADDR", passwordclient.DefaultAddress),
+		dialTimeout,
+		requestTimeout,
+	)
+	if err != nil {
+		return passwordclient.Config{}, err
 	}
 
 	return config, nil

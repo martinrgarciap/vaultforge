@@ -397,6 +397,96 @@ func TestLoadConfigRejectsInvalidHashServiceConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAcceptsCustomPasswordServiceConfig(t *testing.T) {
+	setValidConfigEnvironment(t)
+
+	t.Setenv("DATABASE_URL", testDatabaseURL)
+	t.Setenv("PASSWORD_SERVICE_ADDR", "password-service:50053")
+	t.Setenv("PASSWORD_SERVICE_DIAL_TIMEOUT", "4s")
+	t.Setenv("PASSWORD_SERVICE_TIMEOUT", "2500ms")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.PasswordService.Address() != "password-service:50053" {
+		t.Errorf(
+			"password service address = %q",
+			cfg.PasswordService.Address(),
+		)
+	}
+
+	if cfg.PasswordService.DialTimeout() != 4*time.Second {
+		t.Errorf(
+			"password service dial timeout = %v",
+			cfg.PasswordService.DialTimeout(),
+		)
+	}
+
+	if cfg.PasswordService.RequestTimeout() != 2500*time.Millisecond {
+		t.Errorf(
+			"password service request timeout = %v",
+			cfg.PasswordService.RequestTimeout(),
+		)
+	}
+}
+
+func TestLoadConfigRejectsInvalidPasswordServiceConfig(t *testing.T) {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{
+			name:  "malformed address",
+			key:   "PASSWORD_SERVICE_ADDR",
+			value: "http://127.0.0.1:50053",
+		},
+		{
+			name:  "address without port",
+			key:   "PASSWORD_SERVICE_ADDR",
+			value: "127.0.0.1",
+		},
+		{
+			name:  "malformed dial timeout",
+			key:   "PASSWORD_SERVICE_DIAL_TIMEOUT",
+			value: "invalid",
+		},
+		{
+			name:  "zero dial timeout",
+			key:   "PASSWORD_SERVICE_DIAL_TIMEOUT",
+			value: "0s",
+		},
+		{
+			name:  "malformed request timeout",
+			key:   "PASSWORD_SERVICE_TIMEOUT",
+			value: "invalid",
+		},
+		{
+			name:  "zero request timeout",
+			key:   "PASSWORD_SERVICE_TIMEOUT",
+			value: "0s",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			setValidConfigEnvironment(t)
+
+			t.Setenv("DATABASE_URL", testDatabaseURL)
+			t.Setenv(testCase.key, testCase.value)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal(
+					"expected invalid password service config to return an error",
+				)
+			}
+		})
+	}
+}
+
 func TestLoadConfigRejectsInvalidEnvironment(
 	t *testing.T,
 ) {
@@ -411,6 +501,49 @@ func TestLoadConfigRejectsInvalidEnvironment(
 		t.Fatal(
 			"expected invalid environment to return an error",
 		)
+	}
+}
+
+func TestLoadConfigRejectsInvalidPasswordToolsRateLimitConfig(t *testing.T) {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{
+			name:  "malformed request count",
+			key:   "RATE_LIMIT_PASSWORD_TOOLS_REQUESTS",
+			value: "invalid",
+		},
+		{
+			name:  "zero request count",
+			key:   "RATE_LIMIT_PASSWORD_TOOLS_REQUESTS",
+			value: "0",
+		},
+		{
+			name:  "malformed window",
+			key:   "RATE_LIMIT_PASSWORD_TOOLS_WINDOW",
+			value: "invalid",
+		},
+		{
+			name:  "zero window",
+			key:   "RATE_LIMIT_PASSWORD_TOOLS_WINDOW",
+			value: "0s",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			setValidConfigEnvironment(t)
+
+			t.Setenv("DATABASE_URL", testDatabaseURL)
+			t.Setenv(testCase.key, testCase.value)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal("expected invalid password-tools rate-limit config to return an error")
+			}
+		})
 	}
 }
 
@@ -707,6 +840,8 @@ func setValidConfigEnvironment(t *testing.T) {
 	t.Setenv("RATE_LIMIT_REFRESH_WINDOW", "")
 	t.Setenv("RATE_LIMIT_MUTATION_REQUESTS", "")
 	t.Setenv("RATE_LIMIT_MUTATION_WINDOW", "")
+	t.Setenv("RATE_LIMIT_PASSWORD_TOOLS_REQUESTS", "")
+	t.Setenv("RATE_LIMIT_PASSWORD_TOOLS_WINDOW", "")
 	t.Setenv("LOGIN_FAILURE_LIMIT", "")
 	t.Setenv("LOGIN_FAILURE_WINDOW", "")
 	t.Setenv("LOGIN_LOCKOUT_DURATION", "")
@@ -720,6 +855,10 @@ func setValidConfigEnvironment(t *testing.T) {
 	t.Setenv("HASH_SERVICE_ADDR", "")
 	t.Setenv("HASH_SERVICE_DIAL_TIMEOUT", "")
 	t.Setenv("HASH_SERVICE_TIMEOUT", "")
+
+	t.Setenv("PASSWORD_SERVICE_ADDR", "")
+	t.Setenv("PASSWORD_SERVICE_DIAL_TIMEOUT", "")
+	t.Setenv("PASSWORD_SERVICE_TIMEOUT", "")
 
 	t.Setenv("ACCESS_TOKEN_ISSUER", "")
 	t.Setenv("ACCESS_TOKEN_AUDIENCE", "")

@@ -22,6 +22,7 @@ func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 		sessionService,
 		nil,
 		nil,
+		nil,
 	)
 
 	if app.sessionService != sessionService {
@@ -30,6 +31,10 @@ func TestNewApplicationStoresServicesAndCreatesHandlers(t *testing.T) {
 
 	if app.sessionHandler == nil {
 		t.Fatal("application did not create the session handler")
+	}
+
+	if app.passwordHandler == nil {
+		t.Fatal("application did not create the password handler")
 	}
 
 	if app.vaultHandler == nil {

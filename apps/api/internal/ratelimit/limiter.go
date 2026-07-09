@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	ScopeRegistration = "register"
-	ScopeLogin        = "login"
-	ScopeRefresh      = "refresh"
-	ScopeMutation     = "mutation"
+	ScopeRegistration  = "register"
+	ScopeLogin         = "login"
+	ScopeRefresh       = "refresh"
+	ScopeMutation      = "mutation"
+	ScopePasswordTools = "password-tools"
 
 	scopeLoginFailure = "login-failure"
 	scopeLoginLockout = "login-lockout"

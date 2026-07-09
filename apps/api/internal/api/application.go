@@ -7,6 +7,7 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/itemhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/metrics"
 	appmiddleware "github.com/martinrgarciap/vaultforge/apps/api/internal/api/middleware"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/passwordhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessioncookie"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/sessionhandler"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/api/vaulthandler"
@@ -31,6 +32,7 @@ type Application struct {
 	authHandler        *authhandler.Handler
 	sessionService     *session.Service
 	sessionHandler     *sessionhandler.Handler
+	passwordHandler    *passwordhandler.Handler
 	vaultHandler       *vaulthandler.Handler
 	itemHandler        *itemhandler.Handler
 }
@@ -42,6 +44,7 @@ func NewApplication(
 	securityEnforcer SecurityEnforcer,
 	authService authhandler.RegistrationService,
 	sessionService *session.Service,
+	passwordService passwordhandler.Service,
 	vaultService vaulthandler.VaultService,
 	itemService itemhandler.ItemService,
 ) *Application {
@@ -70,6 +73,10 @@ func NewApplication(
 		sessionHandler: sessionhandler.New(
 			sessionService,
 			sessionCookies,
+			logger,
+		),
+		passwordHandler: passwordhandler.New(
+			passwordService,
 			logger,
 		),
 		vaultHandler: vaulthandler.New(vaultService, logger),

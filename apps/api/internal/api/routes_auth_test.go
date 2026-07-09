@@ -500,6 +500,7 @@ func newApplicationWithAuthServiceAndSecurityEnforcer(
 		newTestLoginSessionService(authService),
 		nil,
 		nil,
+		nil,
 	)
 }
 

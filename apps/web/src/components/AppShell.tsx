@@ -40,6 +40,10 @@ export function AppShell() {
         </div>
 
         <nav className="navigation" aria-label="Primary navigation">
+          <NavLink className={navLinkClassName} to="/generate">
+            Password Generator
+          </NavLink>
+
           {status === "authenticated" ? (
             <>
               <NavLink className={navLinkClassName} to="/vaults">

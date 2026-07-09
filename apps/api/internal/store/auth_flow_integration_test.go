@@ -1014,6 +1014,7 @@ func newAuthenticationIntegrationApplicationWithAccessTokenProvider(
 		allowingStoreRequestLimiter{},
 		authService,
 		sessionService,
+		nil,
 		vaultService,
 		nil,
 	)

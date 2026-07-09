@@ -59,6 +59,7 @@ func newTestApplicationWithDatabaseError(
 		newTestSessionService(),
 		nil,
 		nil,
+		nil,
 	)
 }
 
