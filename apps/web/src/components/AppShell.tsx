@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 
@@ -11,7 +11,7 @@ function navLinkClassName({ isActive }: { isActive: boolean }) {
 
 export function AppShell() {
   const navigate = useNavigate();
-  const { logout, status } = useAuth();
+  const { account, logout, status } = useAuth();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -34,51 +34,65 @@ export function AppShell() {
   return (
     <div className="application">
       <header className="application-header">
-        <div>
-          <p className="application-eyebrow">Developer secrets vault</p>
-          <p className="application-title">VaultForge</p>
+        <Link
+          className="application-brand"
+          to="/"
+          aria-label="Go to VaultForge home"
+        >
+          <span className="application-eyebrow">Developer secrets vault</span>
+          <span className="application-title">VaultForge</span>
+        </Link>
+
+        <div className="application-header-actions">
+          {status === "authenticated" && account ? (
+            <p className="account-greeting">Hello, {account.email}</p>
+          ) : null}
+
+          <nav className="navigation" aria-label="Primary navigation">
+            <NavLink className={navLinkClassName} to="/">
+              Home
+            </NavLink>
+
+            <NavLink className={navLinkClassName} to="/generate">
+              Password Generator
+            </NavLink>
+
+            {status === "authenticated" ? (
+              <>
+                <NavLink className={navLinkClassName} to="/vaults">
+                  Vaults
+                </NavLink>
+
+                <NavLink className={navLinkClassName} to="/sessions">
+                  Sessions
+                </NavLink>
+
+                <button
+                  className="navigation-link navigation-button"
+                  type="button"
+                  onClick={() => {
+                    void handleLogout();
+                  }}
+                  disabled={isLoggingOut}
+                >
+                  {isLoggingOut ? "Logging out..." : "Log out"}
+                </button>
+              </>
+            ) : null}
+
+            {status === "unauthenticated" ? (
+              <>
+                <NavLink className={navLinkClassName} to="/login">
+                  Login
+                </NavLink>
+
+                <NavLink className={navLinkClassName} to="/register">
+                  Register
+                </NavLink>
+              </>
+            ) : null}
+          </nav>
         </div>
-
-        <nav className="navigation" aria-label="Primary navigation">
-          <NavLink className={navLinkClassName} to="/generate">
-            Password Generator
-          </NavLink>
-
-          {status === "authenticated" ? (
-            <>
-              <NavLink className={navLinkClassName} to="/vaults">
-                Vaults
-              </NavLink>
-
-              <NavLink className={navLinkClassName} to="/sessions">
-                Sessions
-              </NavLink>
-
-              <button
-                className="navigation-link navigation-button"
-                type="button"
-                onClick={() => {
-                  void handleLogout();
-                }}
-                disabled={isLoggingOut}
-              >
-                {isLoggingOut ? "Logging out..." : "Log out"}
-              </button>
-            </>
-          ) : null}
-
-          {status === "unauthenticated" ? (
-            <>
-              <NavLink className={navLinkClassName} to="/login">
-                Login
-              </NavLink>
-
-              <NavLink className={navLinkClassName} to="/register">
-                Register
-              </NavLink>
-            </>
-          ) : null}
-        </nav>
       </header>
 
       <div className="security-notice" role="note">
