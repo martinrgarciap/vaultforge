@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
@@ -10,6 +10,47 @@ import {
   validateRegisterFields,
 } from "../auth/validation";
 import { ApiErrorMessage } from "../components/ApiErrorMessage";
+import type { PasswordStrengthResponse } from "../passwords/contracts";
+import { checkPasswordStrength } from "../passwords/request";
+
+type StrengthStatus = "idle" | "checking" | "ready" | "error";
+
+function hasDigit(value: string) {
+  return /\d/.test(value);
+}
+
+function hasSymbol(value: string) {
+  return /[^A-Za-z0-9\s]/.test(value);
+}
+
+function hasUppercase(value: string) {
+  return /[A-Z]/.test(value);
+}
+
+function hasLowercase(value: string) {
+  return /[a-z]/.test(value);
+}
+
+function scoreClassName(score: number | null) {
+  if (score === null) {
+    return "strength-meter-fill strength-score-empty";
+  }
+
+  const boundedScore = Math.max(0, Math.min(score, 4));
+
+  return `strength-meter-fill strength-score-${boundedScore}`;
+}
+
+function passwordDescriptionIds(hasPasswordError: boolean) {
+  return [
+    "register-password-help",
+    "register-password-hints",
+    "register-password-strength",
+    hasPasswordError ? "register-password-error" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -23,6 +64,47 @@ export function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
   const [submissionError, setSubmissionError] = useState<unknown>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [strengthStatus, setStrengthStatus] = useState<StrengthStatus>("idle");
+  const [strength, setStrength] = useState<PasswordStrengthResponse | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (password.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void checkPasswordStrength({
+        password,
+      })
+        .then((response) => {
+          if (cancelled) {
+            return;
+          }
+
+          setStrength(response);
+          setStrengthStatus("ready");
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+
+          setStrength(null);
+          setStrengthStatus("error");
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [password]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -70,6 +152,27 @@ export function RegisterPage() {
   };
 
   const formDisabled = isSubmitting || status === "restoring";
+  const passwordHints = [
+    {
+      label: "15 to 128 characters",
+      satisfied: password.length >= 15 && password.length <= 128,
+    },
+    {
+      label: "At least one digit",
+      satisfied: hasDigit(password),
+    },
+    {
+      label: "At least one symbol",
+      satisfied: hasSymbol(password),
+    },
+    {
+      label: "Uppercase and lowercase letters",
+      satisfied: hasUppercase(password) && hasLowercase(password),
+    },
+  ];
+
+  const strengthScore =
+    strengthStatus === "ready" && strength ? strength.score : null;
 
   return (
     <section className="page-card auth-card">
@@ -85,7 +188,7 @@ export function RegisterPage() {
         className="auth-form"
         onSubmit={handleSubmit}
         noValidate
-        aria-busy={isSubmitting}
+        aria-busy={formDisabled}
       >
         <div className="form-field">
           <label className="form-label" htmlFor="register-email">
@@ -136,7 +239,18 @@ export function RegisterPage() {
             type="password"
             value={password}
             onChange={(event) => {
-              setPassword(event.target.value);
+              const nextPassword = event.target.value;
+
+              setPassword(nextPassword);
+
+              if (nextPassword.length === 0) {
+                setStrength(null);
+                setStrengthStatus("idle");
+              } else {
+                setStrength(null);
+                setStrengthStatus("checking");
+              }
+
               setFieldErrors((current) => ({
                 ...current,
                 password: undefined,
@@ -147,16 +261,78 @@ export function RegisterPage() {
             disabled={formDisabled}
             required
             aria-invalid={fieldErrors.password ? true : undefined}
-            aria-describedby={
-              fieldErrors.password
-                ? "register-password-help register-password-error"
-                : "register-password-help"
-            }
+            aria-describedby={passwordDescriptionIds(
+              Boolean(fieldErrors.password),
+            )}
           />
 
           <p className="field-help" id="register-password-help">
-            Use between 15 and 128 characters. Spaces are preserved.
+            Use between 15 and 128 characters. Spaces are preserved. Strength
+            checks are for account passwords only, not vault item secrets.
           </p>
+
+          <ul
+            className="password-hint-list"
+            id="register-password-hints"
+            aria-label="Password guidance"
+          >
+            {passwordHints.map((hint) => (
+              <li
+                className={
+                  hint.satisfied
+                    ? "password-hint password-hint-satisfied"
+                    : "password-hint"
+                }
+                key={hint.label}
+              >
+                <span aria-hidden="true">{hint.satisfied ? "✓" : "○"}</span>
+                {hint.label}
+              </li>
+            ))}
+          </ul>
+
+          <div
+            className="password-strength"
+            id="register-password-strength"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="strength-meter" aria-hidden="true">
+              <span className={scoreClassName(strengthScore)} />
+            </div>
+
+            {strengthStatus === "idle" ? (
+              <p className="field-help">Enter a password to check strength.</p>
+            ) : null}
+
+            {strengthStatus === "checking" ? (
+              <p className="field-help">Checking password strength...</p>
+            ) : null}
+
+            {strengthStatus === "ready" && strength ? (
+              <>
+                <p className="field-help">
+                  Strength: <strong>{strength.label}</strong>. Estimated
+                  entropy: {strength.entropyBits.toFixed(1)} bits. Crack time:
+                  {strength.crackTimeEstimate}.
+                </p>
+
+                {strength.suggestions.length > 0 ? (
+                  <ul className="password-strength-suggestions">
+                    {strength.suggestions.map((suggestion) => (
+                      <li key={suggestion}>{suggestion}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : null}
+
+            {strengthStatus === "error" ? (
+              <p className="field-help">
+                Password strength is temporarily unavailable.
+              </p>
+            ) : null}
+          </div>
 
           {fieldErrors.password ? (
             <p className="field-error" id="register-password-error">

@@ -192,6 +192,7 @@ func newApplicationWithVaultServiceAndSecurityEnforcer(
 		securityEnforcer,
 		authService,
 		newTestLoginSessionService(authService),
+		nil,
 		vaultService,
 		nil,
 	)

@@ -12,6 +12,8 @@ import (
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/db"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/hashpb"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/passwordclient"
+	"github.com/martinrgarciap/vaultforge/apps/api/internal/passwordpb"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/ratelimit"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/redisclient"
 	"github.com/martinrgarciap/vaultforge/apps/api/internal/session"
@@ -239,6 +241,59 @@ func main() {
 		return
 	}
 
+	passwordServiceConnection, err := passwordclient.Dial(
+		context.Background(),
+		cfg.PasswordService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"password service initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	defer func() {
+		if err := passwordServiceConnection.Close(); err != nil {
+			logger.Warnw("password service connection close failed")
+		}
+	}()
+
+	logger.Infow(
+		"password service connection established",
+	)
+
+	passwordServiceClient := passwordpb.NewPasswordServiceClient(
+		passwordServiceConnection,
+	)
+
+	passwordTools, err := passwordclient.New(
+		passwordServiceClient,
+		cfg.PasswordService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"password tools initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	passwordServicePinger, err := passwordclient.NewHealthPinger(
+		passwordServiceConnection,
+		cfg.PasswordService,
+	)
+	if err != nil {
+		logger.Errorw(
+			"password service readiness initialization failed",
+			"error", err,
+		)
+
+		return
+	}
+
 	authService := auth.NewService(
 		userStore,
 		passwordHasher,
@@ -265,6 +320,7 @@ func main() {
 		databasePool,
 		redisClient,
 		hashServicePinger,
+		passwordServicePinger,
 	)
 
 	app := api.NewApplication(
@@ -274,6 +330,7 @@ func main() {
 		securityEnforcer,
 		authService,
 		sessionService,
+		passwordTools,
 		vaultService,
 		vaultService,
 	)

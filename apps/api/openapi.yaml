@@ -12,6 +12,7 @@ servers:
 tags:
   - name: Health
   - name: Authentication
+  - name: Passwords
   - name: Sessions
   - name: Vaults
   - name: Items
@@ -163,6 +164,76 @@ paths:
         '400':
           $ref: '#/components/responses/ErrorResponse'
         '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/passwords/generate:
+    post:
+      operationId: generatePassword
+      tags: [Passwords]
+      description: Public synthetic password generator endpoint. Does not require authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordGenerateRequest'
+      responses:
+        '200':
+          description: Generated password result.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordGenerateResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/ErrorResponse'
+        '415':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/passwords/strength:
+    post:
+      operationId: checkPasswordStrength
+      tags: [Passwords]
+      description: Public account-password strength rating endpoint. Does not require authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordStrengthRequest'
+      responses:
+        '200':
+          description: Password strength result.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordStrengthResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/ErrorResponse'
+        '415':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
           $ref: '#/components/responses/ErrorResponse'
         '429':
           $ref: '#/components/responses/RateLimitedResponse'
@@ -838,6 +909,93 @@ components:
         refreshTokenExpiresAt:
           type: string
           format: date-time
+
+    PasswordGenerateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - length
+        - includeUppercase
+        - includeLowercase
+        - includeDigits
+        - includeSymbols
+      properties:
+        length:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 256
+        includeUppercase:
+          type: boolean
+        includeLowercase:
+          type: boolean
+        includeDigits:
+          type: boolean
+        includeSymbols:
+          type: boolean
+        excludeChars:
+          type: string
+          maxLength: 256
+
+    PasswordGenerateResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+        - entropyBits
+      properties:
+        password:
+          type: string
+          minLength: 1
+        entropyBits:
+          type: number
+          format: double
+          minimum: 0
+
+    PasswordStrengthRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          maxLength: 1024
+
+    PasswordStrengthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - score
+        - label
+        - entropyBits
+        - crackTimeEstimate
+        - suggestions
+      properties:
+        score:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 4
+        label:
+          type: string
+          enum:
+            - very weak
+            - weak
+            - fair
+            - strong
+            - very strong
+        entropyBits:
+          type: number
+          format: double
+          minimum: 0
+        crackTimeEstimate:
+          type: string
+          minLength: 1
+        suggestions:
+          type: array
+          items:
+            type: string
 
     ErrorEnvelope:
       type: object

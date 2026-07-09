@@ -415,6 +415,7 @@ func newApplicationWithItemServiceAndSecurityEnforcer(
 		authService,
 		newTestLoginSessionService(authService),
 		nil,
+		nil,
 		itemService,
 	)
 }

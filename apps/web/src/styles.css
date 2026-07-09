@@ -3652,3 +3652,148 @@ a {
     font-size: clamp(2rem, 8vw, 3rem);
   }
 }
+
+.password-generator-page {
+  margin: 0 auto;
+}
+
+.password-options {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid #dce1e8;
+  border-radius: 0.55rem;
+}
+
+.password-options legend {
+  padding: 0 0.35rem;
+  color: #52647e;
+  font-size: 0.8rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 650;
+}
+
+.checkbox-field input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.password-result {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border: 1px solid #dce1e8;
+  border-radius: 0.6rem;
+}
+
+.generated-password {
+  display: block;
+  margin-top: 0.4rem;
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.password-hint-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.password-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.password-hint-satisfied {
+  color: #166534;
+}
+
+.password-strength {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.strength-meter {
+  height: 0.55rem;
+  overflow: hidden;
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+.strength-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition:
+    width 160ms ease,
+    background 160ms ease;
+}
+
+.strength-score-empty {
+  width: 0;
+}
+
+.strength-score-0 {
+  width: 20%;
+  background: #dc2626;
+}
+
+.strength-score-1 {
+  width: 40%;
+  background: #ea580c;
+}
+
+.strength-score-2 {
+  width: 60%;
+  background: #ca8a04;
+}
+
+.strength-score-3 {
+  width: 80%;
+  background: #16a34a;
+}
+
+.strength-score-4 {
+  width: 100%;
+  background: #15803d;
+}
+
+.password-strength-suggestions {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #52647e;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  .password-result {
+    flex-direction: column;
+  }
+
+  .password-result .secondary-button {
+    width: 100%;
+  }
+}

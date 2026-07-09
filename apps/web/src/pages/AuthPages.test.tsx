@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/ApiError";
 import type { Account } from "../api/types";
@@ -16,6 +16,15 @@ const account: Account = {
   createdAt: "2026-06-22T12:00:00Z",
   updatedAt: "2026-06-22T12:00:00Z",
 };
+
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
 
 function createAuthValue(
   overrides: Partial<AuthContextValue> = {},
@@ -85,6 +94,12 @@ function fillRegistrationForm() {
     },
   });
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("LoginPage", () => {
   it("validates required fields before calling login", () => {
@@ -263,6 +278,64 @@ describe("RegisterPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Passwords do not match.")).toBeInTheDocument();
     expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  it("shows password guidance and debounced account password strength", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        score: 3,
+        label: "strong",
+        entropyBits: 91.25,
+        crackTimeEstimate: "centuries",
+        suggestions: ["Use this only for the account password."],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderAuthenticationPages(createAuthValue(), "/register");
+
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: {
+        value: "Correct-Horse-123!",
+      },
+    });
+
+    expect(screen.getByText("15 to 128 characters")).toBeInTheDocument();
+    expect(screen.getByText("At least one digit")).toBeInTheDocument();
+    expect(screen.getByText("At least one symbol")).toBeInTheDocument();
+    expect(
+      screen.getByText("Uppercase and lowercase letters"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("Checking password strength..."),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(screen.getByText(/Strength:/)).toHaveTextContent("strong");
+
+    expect(
+      screen.getByText(/Estimated entropy: 91.3 bits/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Use this only for the account password."),
+    ).toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [path, request] = fetchMock.mock.calls[0];
+
+    expect(path).toBe("/v1/passwords/strength");
+    expect(request?.method).toBe("POST");
+    expect(request?.credentials).toBe("include");
+    expect(request?.body).toBe('{"password":"Correct-Horse-123!"}');
   });
 
   it("registers and redirects to login without authenticating", async () => {

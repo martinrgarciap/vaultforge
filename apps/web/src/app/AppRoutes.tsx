@@ -6,6 +6,7 @@ import { HomePage } from "../pages/HomePage";
 import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { PasswordGeneratorPage } from "../pages/PasswordGeneratorPage";
 import { RegisterPage } from "../pages/RegisterPage";
 import { SessionsPage } from "../pages/SessionsPage";
 import { VaultDetailPage } from "../pages/VaultDetailPage";
@@ -16,6 +17,8 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />
+
+        <Route path="generate" element={<PasswordGeneratorPage />} />
 
         <Route element={<RequireGuest />}>
           <Route path="register" element={<RegisterPage />} />

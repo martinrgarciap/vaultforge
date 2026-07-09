@@ -24,6 +24,9 @@ const (
 	defaultMutationRequests int64 = 60
 	defaultMutationWindow         = time.Minute
 
+	defaultPasswordToolsRequests int64 = 60
+	defaultPasswordToolsWindow         = time.Minute
+
 	defaultLoginFailureLimit    int64 = 5
 	defaultLoginFailureWindow         = 15 * time.Minute
 	defaultLoginLockoutDuration       = 15 * time.Minute
@@ -34,6 +37,7 @@ type RateLimitConfig struct {
 	Login           ratelimit.Policy
 	Refresh         ratelimit.Policy
 	Mutation        ratelimit.Policy
+	PasswordTools   ratelimit.Policy
 	LoginProtection ratelimit.LoginPolicy
 
 	keyPrefix       string
@@ -88,6 +92,16 @@ func loadRateLimitConfig(
 		return RateLimitConfig{}, err
 	}
 
+	passwordTools, err := loadRateLimitPolicy(
+		"RATE_LIMIT_PASSWORD_TOOLS_REQUESTS",
+		defaultPasswordToolsRequests,
+		"RATE_LIMIT_PASSWORD_TOOLS_WINDOW",
+		defaultPasswordToolsWindow,
+	)
+	if err != nil {
+		return RateLimitConfig{}, err
+	}
+
 	failureLimit, err := loadPositiveInt64(
 		"LOGIN_FAILURE_LIMIT",
 		defaultLoginFailureLimit,
@@ -129,6 +143,7 @@ func loadRateLimitConfig(
 		Login:           login,
 		Refresh:         refresh,
 		Mutation:        mutation,
+		PasswordTools:   passwordTools,
 		LoginProtection: loginProtection,
 		keyPrefix:       "vaultforge:" + environment + ":v1",
 		identityHMACKey: append(

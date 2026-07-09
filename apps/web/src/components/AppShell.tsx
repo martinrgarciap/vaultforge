@@ -53,6 +53,10 @@ export function AppShell() {
               Home
             </NavLink>
 
+            <NavLink className={navLinkClassName} to="/generate">
+              Password Generator
+            </NavLink>
+
             {status === "authenticated" ? (
               <>
                 <NavLink className={navLinkClassName} to="/vaults">

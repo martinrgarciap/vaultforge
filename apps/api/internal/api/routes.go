@@ -64,6 +64,16 @@ func (app *Application) Routes() http.Handler {
 			).Post("/refresh", app.authHandler.Refresh)
 		})
 
+		router.Route("/passwords", func(router chi.Router) {
+			router.With(
+				app.passwordToolsRateLimit(),
+			).Post("/generate", app.passwordHandler.Generate)
+
+			router.With(
+				app.passwordToolsRateLimit(),
+			).Post("/strength", app.passwordHandler.CheckStrength)
+		})
+
 		router.Group(func(router chi.Router) {
 			router.Use(
 				appmiddleware.RequireAuthentication(
@@ -149,6 +159,19 @@ func (app *Application) authenticationRateLimit(
 		policy,
 		"authentication_unavailable",
 		"Authentication is temporarily unavailable.",
+		app.logger,
+	)
+}
+
+func (app *Application) passwordToolsRateLimit() func(
+	http.Handler,
+) http.Handler {
+	return appmiddleware.RateLimitByPeerIP(
+		app.securityEnforcer,
+		ratelimit.ScopePasswordTools,
+		app.config.RateLimits.PasswordTools,
+		"password_tools_unavailable",
+		"Password tools are temporarily unavailable.",
 		app.logger,
 	)
 }

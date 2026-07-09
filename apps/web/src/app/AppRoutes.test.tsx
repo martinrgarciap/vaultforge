@@ -215,6 +215,7 @@ describe("AppRoutes", () => {
   it.each([
     ["/register", "Create your account"],
     ["/login", "Sign in"],
+    ["/generate", "Password Generator"],
   ])("renders signed-out public route %s", (path, heading) => {
     renderRoute(path);
 
@@ -263,6 +264,24 @@ describe("AppRoutes", () => {
       ).toBeInTheDocument();
     },
   );
+
+  it("renders the password generator while signed in", () => {
+    renderRoute("/generate", {
+      status: "authenticated",
+    });
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Password Generator",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Password Generator",
+      }),
+    ).toBeInTheDocument();
+  });
 
   it("loads the selected vault route", async () => {
     const requestMock = vi.fn(async (path: string) => {
