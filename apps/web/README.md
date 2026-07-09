@@ -2,7 +2,7 @@
 
 VaultForge Web is the React and TypeScript client for the VaultForge Go API.
 
-It implements the current user-facing authentication, session, vault, and synthetic item workflows. Browser-side vault encryption is not implemented yet, so all item values must remain synthetic.
+It implements the current user-facing authentication, session, vault, and item workflows, plus a public home page and a public password generator. Vault item values are encrypted and decrypted in the browser with the Rust WASM crypto module before normal create, edit, list, and detail workflows reach the Go API. Only synthetic data belongs in the vault.
 
 ## Technology
 
@@ -23,6 +23,8 @@ The client intentionally does not use Redux, Zustand, Axios, React Query, a CSS 
 ## Routes
 
 ```text
+/
+/password-generator
 /register
 /login
 /vaults
@@ -30,6 +32,8 @@ The client intentionally does not use Redux, Zustand, Axios, React Query, a CSS 
 /vaults/:vaultId/items/:itemId
 /sessions
 ```
+
+`/` and `/password-generator` are public and require no account.
 
 Route behavior includes:
 
@@ -66,9 +70,14 @@ Concurrent refresh attempts share one in-flight refresh promise.
 
 ## Current workflows
 
+### Public pages
+
+- Home page introducing the project without requiring an account
+- Password generator page with configurable length and character classes, generated entropy, and strength feedback, calling the public `/v1/passwords/generate` and `/v1/passwords/strength` API endpoints
+
 ### Account
 
-- Register
+- Register, with live password-strength feedback from the same public `/v1/passwords/strength` endpoint used by the password generator page
 - Login
 - Automatic session restoration
 - Current-session logout

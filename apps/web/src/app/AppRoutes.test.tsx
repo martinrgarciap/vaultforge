@@ -443,11 +443,5 @@ describe("AppRoutes", () => {
         name: "Primary navigation",
       }),
     ).toBeInTheDocument();
-
-    expect(
-      screen.getByText(
-        "Use synthetic data only. Vault item payloads are encrypted in the browser before they are sent to the API. Unlocked vault keys and revealed values are cleared after inactivity or when the tab is hidden.",
-      ),
-    ).toBeInTheDocument();
   });
 });

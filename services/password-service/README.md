@@ -1,7 +1,13 @@
-# password-service
+# VaultForge Password Service
 
 A Rust gRPC service for **password generation** and **password strength rating**,
 part of VaultForge.
+
+The Go API exposes this service publicly through `POST /v1/passwords/generate` and
+`POST /v1/passwords/strength`. This service itself is internal: it listens only on
+`services/password-service`'s own gRPC port behind the Go API and is never exposed
+directly to the browser or the public internet. Generated passwords and submitted
+strength-check inputs are not stored or logged by this service or by the Go API.
 
 > **Scope & security note:** This service generates account-level passwords and
 > rates password strength for VaultForge's public generator page and registration

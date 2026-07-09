@@ -18,16 +18,17 @@ VaultForge separates account authentication from vault encryption.
 flowchart LR
     Browser["Browser<br/>React + TypeScript"] --> Wasm["Rust WASM crypto<br/>key derivation + AES-GCM"]
     Wasm --> Browser
-    Browser --> API["Go REST API<br/>auth, vaults, items, sessions"]
+    Browser --> API["Go REST API<br/>auth, vaults, items, sessions, password tools"]
     API --> Postgres["PostgreSQL<br/>users, sessions, vault metadata,<br/>ciphertext item envelopes"]
     API --> Redis["Redis<br/>rate limits + lockouts"]
     API --> Hash["Rust gRPC hash-service<br/>Argon2id Hash/Verify"]
+    API --> PasswordSvc["Rust gRPC password-service<br/>Generate/CheckStrength"]
     API --> Telemetry["OpenTelemetry<br/>local Collector + Jaeger"]
     Browser -. "decrypted item values stay in browser memory" .-> Browser
     API -. "never receives vault passphrase,<br/>unwrapped vault key, or decrypted item values" .-> API
 ```
 
-Account authentication and vault encryption are separate. The Go API authenticates users, manages sessions, enforces owner-scoped access, and stores encrypted item envelopes. The Rust hash-service handles account-password hashing over gRPC. The browser uses the Rust WASM crypto module to derive vault keys, wrap and unwrap vault keys, and encrypt or decrypt vault item payloads before they cross the API boundary.
+Account authentication and vault encryption are separate. The Go API authenticates users, manages sessions, enforces owner-scoped access, and stores encrypted item envelopes. The Rust hash-service handles account-password hashing over gRPC. A separate Rust password-service generates passwords and rates password strength over gRPC for the public password generator page and registration form; it never receives account credentials or vault data. The browser uses the Rust WASM crypto module to derive vault keys, wrap and unwrap vault keys, and encrypt or decrypt vault item payloads before they cross the API boundary.
 
 The current React client exercises the complete user-facing authentication, session, vault, and item workflows through relative API URLs. Vite proxies `/v1` and `/health` to the Go API during development.
 
@@ -45,6 +46,7 @@ The current Go API provides:
 - Vault-item lifecycle and pagination
 - Optimistic concurrency and PostgreSQL-backed idempotency
 - Sanitized transactional outbox writes
+- Public, rate-limited password generation and password-strength endpoints backed by the Rust password-service
 - PostgreSQL persistence
 - Redis-backed distributed request limits
 - Failed-login tracking and temporary lockouts
@@ -53,7 +55,7 @@ The current Go API provides:
 - Sanitized build diagnostics
 - Loopback-only low-cardinality HTTP metrics
 
-Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A Rust WebAssembly browser-side crypto module encrypts and decrypts item values in the browser for normal create, edit, list, and detail workflows. The public demo runs on Railway and Vercel. Docker Compose is used for local PostgreSQL, Redis, OpenTelemetry Collector, and Jaeger.
+Minimal OpenTelemetry tracing is implemented for HTTP, PostgreSQL, and Redis through a local Collector and Jaeger. The reduced frontend security, privacy, accessibility, and usability finishing pass is complete. The Rust gRPC password hashing service is implemented. A separate Rust gRPC password-service generates passwords and rates password strength for the public password generator page and the registration form. A Rust WebAssembly browser-side crypto module encrypts and decrypts item values in the browser for normal create, edit, list, and detail workflows. The public demo runs on Railway and Vercel. Docker Compose is used for local PostgreSQL, Redis, OpenTelemetry Collector, and Jaeger.
 
 ### Account authentication
 
@@ -110,6 +112,7 @@ Vault item values are encrypted and decrypted in the browser before normal creat
 - Failed-login counters and temporary lockouts keyed through HMAC-protected identities
 - PostgreSQL and Redis startup checks and composite readiness
 - Rust gRPC Argon2id hash service with PHC hash generation, password verification, health checks, reflection, safe validation, and Rust tests
+- Rust gRPC password-service with cryptographically secure password generation and `zxcvbn`-based strength rating, exposed publicly through rate-limited, `Cache-Control: no-store` Go API endpoints
 - Defined PostgreSQL and Redis outage behavior with safe `503` responses
 - Configurable HTTP, shutdown, PostgreSQL, and Redis timeouts
 - Context cancellation through handlers, services, and repositories
@@ -127,7 +130,9 @@ Vault item values are encrypted and decrypted in the browser before normal creat
 
 - React and TypeScript with Vite
 - Declarative React Router routes
-- Registration and login forms
+- Public home page introducing the project without requiring an account
+- Public password generator page with configurable length and character classes, plus strength feedback
+- Registration and login forms, with live password-strength feedback on registration
 - Protected-route and guest-route guards
 - Automatic cookie-based session restoration
 - In-memory access-token handling
@@ -156,7 +161,7 @@ Vault item values are encrypted and decrypted in the browser before normal creat
 - **Authorization:** Stateful bearer middleware with PostgreSQL session validation
 - **Frontend testing:** Vitest, React Testing Library, Playwright, axe
 - **Backend testing:** Go testing, race detector, real PostgreSQL and Redis integration tests
-- **Rust:** Tonic gRPC Argon2id hashing service and WebAssembly browser-side crypto module
+- **Rust:** Tonic gRPC Argon2id hashing service, Tonic gRPC password generation and strength-rating service, and WebAssembly browser-side crypto module
 - **Quality:** Prettier, ESLint, TypeScript, gofmt, Vet, Staticcheck, Gitleaks
 - **Observability:** OpenTelemetry, OpenTelemetry Collector, Jaeger, safe structured logs, low-cardinality metrics
 - **Deployment:** Railway backend services, Vercel frontend, Docker Compose for local PostgreSQL/Redis/observability
@@ -177,6 +182,12 @@ vaultforge/
 │   ├── scope.md
 │   ├── testing.md
 │   └── threat-model.md
+├── packages/
+│   ├── crypto-wasm/         # Rust WASM browser-side crypto package
+│   └── proto/               # Shared gRPC contracts (hash-service, password-service)
+├── services/
+│   ├── hash-service/        # Rust gRPC Argon2id account-password hashing
+│   └── password-service/    # Rust gRPC password generation and strength checks
 ├── Makefile
 ├── README.md
 ├── SECURITY.md
@@ -316,6 +327,8 @@ operational-data rules.
 ## Browser routes
 
 ```text
+/
+/password-generator
 /register
 /login
 /vaults
@@ -324,7 +337,7 @@ operational-data rules.
 /sessions
 ```
 
-Authenticated users are redirected away from `/login` and `/register`. Signed-out users who request protected routes are sent to Login and returned to their original internal path after successful authentication.
+`/` and `/password-generator` are public and require no account. Authenticated users are redirected away from `/login` and `/register`. Signed-out users who request protected routes are sent to Login and returned to their original internal path after successful authentication.
 
 ## API routes
 
@@ -334,6 +347,9 @@ GET    /health/live
 GET    /health/ready
 GET    /health/diagnostics
 GET    /internal/metrics
+
+POST   /v1/passwords/generate
+POST   /v1/passwords/strength
 
 POST   /v1/auth/register
 POST   /v1/auth/login
@@ -360,6 +376,8 @@ DELETE /v1/vaults/{vaultID}/items/{itemID}/permanent
 ```
 
 `/health/diagnostics` returns only the sanitized service name, build version, and commit. `/internal/metrics` is available only to the direct loopback peer and ignores forwarded-IP headers.
+
+`/v1/passwords/generate` and `/v1/passwords/strength` are public, require no bearer token, are rate-limited by direct peer IP, and always respond with `Cache-Control: no-store`.
 
 All session, vault, and item routes require:
 
@@ -388,6 +406,7 @@ The default policies are:
 - Registration: 5 requests per 10 minutes per direct peer IP
 - Login: 20 requests per minute per direct peer IP
 - Refresh: 30 requests per minute per direct peer IP
+- Password generation and strength checks: 60 requests per minute per direct peer IP
 - Authenticated mutations: 60 requests per minute per authenticated user
 - Login lockout: 5 invalid-credential failures within 15 minutes triggers a 15-minute lockout for normalized email plus direct peer IP
 
@@ -454,6 +473,7 @@ optional fuzzing commands, and the complete QA strategy.
 - Race-enabled Go tests
 - PostgreSQL and Redis integration tests
 - API build with linker-injected version and commit metadata
+- Rust checks for the hash-service, password-service, and WASM crypto package (format, clippy, tests, build)
 - Frontend formatting checks
 - ESLint
 - TypeScript compilation
@@ -490,11 +510,14 @@ Focused backend tests also verify:
 - OpenTelemetry spans use normalized routes and sanitized dependency operation names
 - Request logs correlate safe request IDs with trace IDs
 
-GitHub Actions runs four jobs:
+GitHub Actions runs:
 
 - Go checks
 - Web checks
 - Browser E2E
+- Rust checks (hash-service)
+- Crypto WASM checks
+- Password service checks
 - Secret scan
 
 ## Security boundary

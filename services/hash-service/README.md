@@ -1,8 +1,8 @@
 # VaultForge Hash Service
 
-The VaultForge hash service is a Rust gRPC service for account password hashing and verification.
+The VaultForge hash service is a Rust gRPC service for account password hashing and verification only.
 
-It is part of VaultForge Step 14 and handles account authentication password hashing only. It does not perform vault-item encryption, browser-side key derivation, or WebAssembly cryptography.
+This service handles account authentication password hashing exclusively. It does not perform vault-item encryption, browser-side key derivation, or WebAssembly cryptography. It also does not generate passwords or rate password strength — that is handled by the separate `services/password-service`, which VaultForge's public password generator page and registration form call through the Go API.
 
 VaultForge is a portfolio and learning project. Use synthetic data only.
 

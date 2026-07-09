@@ -3927,3 +3927,166 @@ a {
     width: 100%;
   }
 }
+
+/* Home page: three-flow layout (auth, vault, password generator) */
+
+.flow-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.password-flow-card {
+  background: #fbf9ff;
+  border-color: #ddd6fe;
+}
+
+.password-flow-card .flow-title {
+  color: #6d28d9;
+}
+
+.password-steps {
+  grid-template-columns:
+    minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr)
+    auto minmax(0, 1fr);
+}
+
+.password-result-step {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+.password-result-icon {
+  background: #ede9fe;
+}
+
+.password-result-icon svg {
+  color: #7c3aed;
+}
+
+.password-benefit {
+  color: #6d28d9;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+}
+
+.password-generator-hero-link {
+  border-color: #a78bfa;
+  color: #6d28d9;
+}
+
+.password-tool-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.password-tool-callout h2,
+.password-tool-callout p {
+  margin: 0;
+}
+
+.password-tool-callout h2 {
+  margin-top: 0.2rem;
+}
+
+.password-tool-callout p {
+  margin-top: 0.35rem;
+  color: #3f526f;
+}
+
+@media (max-width: 1180px) {
+  .flow-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .password-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .password-steps .flow-arrow {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .password-result-step {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .password-tool-callout {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .password-tool-callout .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Final public home responsive polish: two-column flow grid, full-width password flow */
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.home-actions .primary-button,
+.home-actions .secondary-button {
+  padding-inline: 1rem;
+  white-space: nowrap;
+}
+
+.password-generator-hero-link {
+  border-color: #8b5cf6;
+  color: #6d28d9;
+}
+
+.password-generator-hero-link:hover,
+.password-generator-hero-link:focus-visible {
+  border-color: #7c3aed;
+  color: #5b21b6;
+}
+
+.flow-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.password-flow-card {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+  .home-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .home-actions .primary-button,
+  .home-actions .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .password-flow-card {
+    grid-column: auto;
+  }
+}

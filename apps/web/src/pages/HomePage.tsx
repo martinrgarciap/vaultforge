@@ -6,6 +6,7 @@ import {
   FiKey,
   FiLock,
   FiShield,
+  FiSliders,
   FiXCircle,
 } from "react-icons/fi";
 import { FaGithub, FaLinkedinIn } from "react-icons/fa";
@@ -45,15 +46,23 @@ export function HomePage() {
                 Open Vaults
               </Link>
             ) : (
-              <>
-                <Link className="primary-button" to="/register">
-                  Create demo account
-                </Link>
-                <Link className="secondary-button" to="/login">
-                  Sign in
-                </Link>
-              </>
+              <Link className="primary-button" to="/register">
+                Create demo account
+              </Link>
             )}
+
+            {isAuthenticated ? null : (
+              <Link className="secondary-button" to="/login">
+                Sign in
+              </Link>
+            )}
+
+            <Link
+              className="secondary-button password-generator-hero-link"
+              to="/password-generator"
+            >
+              Password Generator
+            </Link>
           </div>
 
           <div className="home-social-links" aria-label="Project links">
@@ -270,6 +279,64 @@ export function HomePage() {
               </p>
             </div>
           </article>
+
+          <article className="flow-card password-flow-card">
+            <div className="flow-title">
+              <FiSliders aria-hidden="true" />
+              <h3>Password Generator Flow</h3>
+            </div>
+
+            <div className="flow-content">
+              <div className="flow-steps password-steps">
+                <div className="flow-step browser-step">
+                  <span className="flow-step-icon browser-icon">
+                    <FiSliders aria-hidden="true" />
+                  </span>
+                  <strong>Browser</strong>
+                  <span>Choose length, symbols, and exclusions</span>
+                </div>
+                <div className="flow-arrow" aria-hidden="true">
+                  →
+                </div>
+                <div className="flow-step go-step">
+                  <span className="flow-step-icon go-icon">
+                    <SiGo aria-hidden="true" />
+                  </span>
+                  <strong>Go API</strong>
+                  <span>Public password endpoints</span>
+                </div>
+                <div className="flow-arrow" aria-hidden="true">
+                  →
+                </div>
+                <div className="flow-step rust-step">
+                  <span className="flow-step-icon rust-icon">
+                    <SiRust aria-hidden="true" />
+                  </span>
+                  <strong>Rust password service</strong>
+                  <span>Generates passwords and strength results</span>
+                </div>
+                <div className="flow-arrow" aria-hidden="true">
+                  →
+                </div>
+                <div className="flow-step password-result-step">
+                  <span className="flow-step-icon password-result-icon">
+                    <FiCheckCircle aria-hidden="true" />
+                  </span>
+                  <strong>Password + insight</strong>
+                  <span>Returned to the browser only</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="benefit-callout password-benefit">
+              <FiShield aria-hidden="true" />
+              <p>
+                <strong>Benefit:</strong> password tools are public and separate
+                from vault encryption, while still using a dedicated Rust
+                service behind the Go API.
+              </p>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -377,6 +444,24 @@ export function HomePage() {
             </li>
           </ul>
         </article>
+      </section>
+
+      <section
+        className="password-tool-callout"
+        aria-labelledby="password-tool-title"
+      >
+        <div>
+          <p className="page-kicker">Public tool</p>
+          <h2 id="password-tool-title">Try the Password Generator</h2>
+          <p>
+            Create strong passwords and check strength without creating an
+            account. This tool is separate from vault encryption and storage.
+          </p>
+        </div>
+
+        <Link className="primary-button" to="/password-generator">
+          Open Password Generator
+        </Link>
       </section>
     </div>
   );

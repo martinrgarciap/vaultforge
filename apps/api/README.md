@@ -18,6 +18,7 @@ The current implementation includes:
 - Session listing and revocation
 - Owner-scoped vault workflows
 - Complete encrypted vault-item lifecycle workflows
+- Public, unauthenticated password generation and password-strength endpoints backed by the Rust password-service
 - Keyset pagination
 - Idempotency keys for item creation. Encrypted create retries must resend the exact same encrypted payload bytes for the same idempotency key; re-encrypting the same plaintext with a new nonce is treated as conflicting idempotency-key reuse.
 - Strong `ETag` and `If-Match` optimistic concurrency
@@ -95,6 +96,7 @@ apps/api/
 │   │   ├── itemhandler/      # Item lifecycle, pagination, ETag, and idempotency HTTP contracts
 │   │   ├── metrics/          # Race-safe low-cardinality HTTP metrics
 │   │   ├── middleware/       # Logging, limits, recovery, security, timeouts, and authentication
+│   │   ├── passwordhandler/  # Public password generation and strength-check HTTP contracts
 │   │   ├── request/          # Strict JSON and bodyless-request validation
 │   │   ├── response/         # Shared JSON response contracts
 │   │   ├── sessioncookie/    # Refresh-cookie and CSRF transport
@@ -103,6 +105,8 @@ apps/api/
 │   ├── auth/                 # Password policy, Argon2id, and account authentication
 │   ├── buildinfo/            # Sanitized build version and commit metadata
 │   ├── db/                   # PostgreSQL connection setup
+│   ├── passwordclient/       # gRPC client boundary to the Rust password-service
+│   ├── passwordpb/           # Generated password-service protobuf and gRPC code
 │   ├── ratelimit/            # Redis scripts, opaque keys, request limits, and lockouts
 │   ├── redisclient/          # Redis configuration, lifecycle, ping, and script execution
 │   ├── session/              # Tokens, login, refresh, authentication, and sessions
@@ -244,6 +248,7 @@ Default fixed-window policies:
 | Registration             | Direct peer IP        | 5 requests per 10 minutes |
 | Login                    | Direct peer IP        | 20 requests per minute    |
 | Refresh                  | Direct peer IP        | 30 requests per minute    |
+| Password tools           | Direct peer IP        | 60 requests per minute    |
 | Vault and item mutations | Authenticated user ID | 60 requests per minute    |
 
 Login protection uses normalized email plus direct peer IP:
@@ -264,6 +269,81 @@ Redis failure behavior:
 - Readiness fails while Redis is unavailable.
 - Liveness remains available.
 - The Redis client and existing application process recover after Redis returns.
+
+## Public password tools
+
+```text
+POST /v1/passwords/generate
+POST /v1/passwords/strength
+```
+
+Both routes are public, require no `Authorization` header, and are backed by the Rust password-service over gRPC through the internal `passwordclient` boundary. They are rate-limited by direct peer IP using the same fixed-window policy (60 requests per minute) and always respond with `Cache-Control: no-store`.
+
+These endpoints generate or rate synthetic password strings for the public password generator page and the registration form's live strength feedback. They never receive account credentials, vault passphrases, or vault data, and they are unrelated to the account-password `PasswordHasher` boundary or the Rust hash-service.
+
+### Generate a password
+
+```text
+POST http://localhost:8080/v1/passwords/generate
+Content-Type: application/json
+```
+
+```json
+{
+  "length": 20,
+  "includeUppercase": true,
+  "includeLowercase": true,
+  "includeDigits": true,
+  "includeSymbols": true,
+  "excludeChars": ""
+}
+```
+
+Successful response:
+
+```text
+200 OK
+Cache-Control: no-store
+```
+
+```json
+{
+  "password": "generated-password-value",
+  "entropyBits": 129.8
+}
+```
+
+### Check password strength
+
+```text
+POST http://localhost:8080/v1/passwords/strength
+Content-Type: application/json
+```
+
+```json
+{
+  "password": "candidate-password-to-rate"
+}
+```
+
+Successful response:
+
+```text
+200 OK
+Cache-Control: no-store
+```
+
+```json
+{
+  "score": 3,
+  "label": "strong",
+  "entropyBits": 61.2,
+  "crackTimeEstimate": "3 years",
+  "suggestions": ["Add another word or two. Uncommon words are better."]
+}
+```
+
+An invalid request (for example, an unsatisfiable character-class combination) returns `422 Unprocessable Entity` with code `invalid_password_request`. Password-service unavailability, timeouts, and malformed upstream responses return `503 Service Unavailable` with code `password_tools_unavailable`. Neither endpoint logs or stores the submitted or generated password.
 
 ## Authentication routes
 
@@ -584,7 +664,7 @@ Authorization: Bearer <access-token>
 
 Ownership comes exclusively from the authenticated principal. Unknown, malformed, deleted, and unowned resources use safe public not-found responses.
 
-> The current item payload is synthetic dummy JSON. Do not store real credentials. Browser-side encryption has not been implemented yet.
+> Vault item payloads are encrypted browser-side before they reach the API; use synthetic data only. See [`../../README.md`](../../README.md) and [`../../docs/threat-model.md`](../../docs/threat-model.md) for the full encryption model.
 
 ### Vault routes
 
@@ -628,12 +708,15 @@ Idempotency-Key: client-generated-key
 ```json
 {
   "type": "api_key",
-  "payload": {
-    "label": "Synthetic development key",
-    "token": "synthetic-value-only"
+  "encryptedPayload": {
+    "version": 1,
+    "algorithm": "AES-256-GCM",
+    "blob": "base64-encoded-nonce-plus-ciphertext"
   }
 }
 ```
+
+The browser encrypts the item payload with the Rust WASM crypto module before this request is sent; the API never receives plaintext. See [`../../README.md`](../../README.md) for the encryption model.
 
 A successful creation returns:
 
@@ -682,8 +765,10 @@ Items are ordered by `updated_at DESC, id DESC`.
     {
       "id": "generated-item-id",
       "type": "secure_note",
-      "payload": {
-        "value": "synthetic"
+      "encryptedPayload": {
+        "version": 1,
+        "algorithm": "AES-256-GCM",
+        "blob": "base64-encoded-nonce-plus-ciphertext"
       },
       "version": 1,
       "createdAt": "timestamp",
@@ -722,8 +807,10 @@ If-Match: "2"
 ```json
 {
   "type": "secure_note",
-  "payload": {
-    "value": "updated synthetic value"
+  "encryptedPayload": {
+    "version": 1,
+    "algorithm": "AES-256-GCM",
+    "blob": "base64-encoded-nonce-plus-ciphertext"
   }
 }
 ```
@@ -773,9 +860,10 @@ Soft deletion returns the deleted resource and keeps the current version. Restor
   "item": {
     "id": "generated-item-id",
     "type": "api_key",
-    "payload": {
-      "label": "Synthetic key",
-      "token": "synthetic-value-only"
+    "encryptedPayload": {
+      "version": 1,
+      "algorithm": "AES-256-GCM",
+      "blob": "base64-encoded-nonce-plus-ciphertext"
     },
     "version": 1,
     "createdAt": "timestamp",
