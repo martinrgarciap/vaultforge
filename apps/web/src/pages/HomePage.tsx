@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { FaGithub, FaLinkedinIn } from "react-icons/fa";
 import {
   FiCheckCircle,
   FiCode,
@@ -9,7 +9,6 @@ import {
   FiSliders,
   FiXCircle,
 } from "react-icons/fi";
-import { FaGithub, FaLinkedinIn } from "react-icons/fa";
 import {
   SiGo,
   SiPostgresql,
@@ -21,6 +20,7 @@ import {
   SiVite,
   SiWebassembly,
 } from "react-icons/si";
+import { Link } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 
@@ -444,24 +444,6 @@ export function HomePage() {
             </li>
           </ul>
         </article>
-      </section>
-
-      <section
-        className="password-tool-callout"
-        aria-labelledby="password-tool-title"
-      >
-        <div>
-          <p className="page-kicker">Public tool</p>
-          <h2 id="password-tool-title">Try the Password Generator</h2>
-          <p>
-            Create strong passwords and check strength without creating an
-            account. This tool is separate from vault encryption and storage.
-          </p>
-        </div>
-
-        <Link className="primary-button" to="/password-generator">
-          Open Password Generator
-        </Link>
       </section>
     </div>
   );
