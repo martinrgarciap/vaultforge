@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/ApiError";
+import type { Account } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue, AuthStatus } from "../auth/types";
 import type { CryptoProvider } from "../crypto/CryptoProvider";
@@ -23,6 +24,14 @@ import { encodeItemPlaintext } from "../items/itemEncryption";
 import { PrivacyProvider } from "../privacy/PrivacyProvider";
 import { VaultUnlockContext } from "../vaults/VaultUnlockContext";
 import { AppRoutes } from "./AppRoutes";
+
+const authenticatedAccount: Account = {
+  id: "user-123",
+  email: "developer@example.com",
+  status: "active",
+  createdAt: "2026-06-22T12:00:00Z",
+  updatedAt: "2026-06-22T12:00:00Z",
+};
 
 function createAuthValue(
   overrides: Partial<AuthContextValue> = {},
@@ -142,31 +151,49 @@ function renderRoute(
 }
 
 describe("AppRoutes", () => {
-  it("redirects signed-out root visits to login", async () => {
+  it("renders the public home page for signed-out root visits", () => {
     renderRoute("/");
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Sign in",
+      screen.getByRole("heading", {
+        name: "VaultForge",
       }),
     ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Create demo account",
+      }),
+    ).toHaveAttribute("href", "/register");
+
+    expect(
+      screen.getByRole("link", {
+        name: "Sign in",
+      }),
+    ).toHaveAttribute("href", "/login");
   });
 
-  it("redirects signed-in root visits to vaults", async () => {
-    const requestMock = vi.fn(async () => ({
-      vaults: [],
-    }));
-
+  it("renders the public home page with a greeting for signed-in root visits", () => {
     renderRoute("/", {
       status: "authenticated",
-      request: requestMock as AuthContextValue["request"],
+      account: authenticatedAccount,
     });
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Your Vaults",
+      screen.getByRole("heading", {
+        name: "VaultForge",
       }),
     ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("Hello, developer@example.com"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("link", {
+        name: "Open Vaults",
+      }),
+    ).toHaveAttribute("href", "/vaults");
   });
 
   it("shows one restoration state before routing", () => {

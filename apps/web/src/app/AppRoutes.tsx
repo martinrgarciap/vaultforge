@@ -1,11 +1,8 @@
 import { Route, Routes } from "react-router";
 
-import {
-  HomeRoute,
-  RequireAuthentication,
-  RequireGuest,
-} from "../auth/RouteGuards";
+import { RequireAuthentication, RequireGuest } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
+import { HomePage } from "../pages/HomePage";
 import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -18,7 +15,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<HomeRoute />} />
+        <Route index element={<HomePage />} />
 
         <Route element={<RequireGuest />}>
           <Route path="register" element={<RegisterPage />} />

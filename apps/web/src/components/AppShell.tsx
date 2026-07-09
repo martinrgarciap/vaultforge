@@ -11,7 +11,7 @@ function navLinkClassName({ isActive }: { isActive: boolean }) {
 
 export function AppShell() {
   const navigate = useNavigate();
-  const { logout, status } = useAuth();
+  const { account, logout, status } = useAuth();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -39,42 +39,52 @@ export function AppShell() {
           <p className="application-title">VaultForge</p>
         </div>
 
-        <nav className="navigation" aria-label="Primary navigation">
-          {status === "authenticated" ? (
-            <>
-              <NavLink className={navLinkClassName} to="/vaults">
-                Vaults
-              </NavLink>
-
-              <NavLink className={navLinkClassName} to="/sessions">
-                Sessions
-              </NavLink>
-
-              <button
-                className="navigation-link navigation-button"
-                type="button"
-                onClick={() => {
-                  void handleLogout();
-                }}
-                disabled={isLoggingOut}
-              >
-                {isLoggingOut ? "Logging out..." : "Log out"}
-              </button>
-            </>
+        <div className="application-header-actions">
+          {status === "authenticated" && account ? (
+            <p className="account-greeting">Hello, {account.email}</p>
           ) : null}
 
-          {status === "unauthenticated" ? (
-            <>
-              <NavLink className={navLinkClassName} to="/login">
-                Login
-              </NavLink>
+          <nav className="navigation" aria-label="Primary navigation">
+            <NavLink className={navLinkClassName} to="/">
+              Home
+            </NavLink>
 
-              <NavLink className={navLinkClassName} to="/register">
-                Register
-              </NavLink>
-            </>
-          ) : null}
-        </nav>
+            {status === "authenticated" ? (
+              <>
+                <NavLink className={navLinkClassName} to="/vaults">
+                  Vaults
+                </NavLink>
+
+                <NavLink className={navLinkClassName} to="/sessions">
+                  Sessions
+                </NavLink>
+
+                <button
+                  className="navigation-link navigation-button"
+                  type="button"
+                  onClick={() => {
+                    void handleLogout();
+                  }}
+                  disabled={isLoggingOut}
+                >
+                  {isLoggingOut ? "Logging out..." : "Log out"}
+                </button>
+              </>
+            ) : null}
+
+            {status === "unauthenticated" ? (
+              <>
+                <NavLink className={navLinkClassName} to="/login">
+                  Login
+                </NavLink>
+
+                <NavLink className={navLinkClassName} to="/register">
+                  Register
+                </NavLink>
+              </>
+            ) : null}
+          </nav>
+        </div>
       </header>
 
       <div className="security-notice" role="note">
