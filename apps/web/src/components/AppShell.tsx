@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 
@@ -34,10 +34,14 @@ export function AppShell() {
   return (
     <div className="application">
       <header className="application-header">
-        <div>
-          <p className="application-eyebrow">Developer secrets vault</p>
-          <p className="application-title">VaultForge</p>
-        </div>
+        <Link
+          className="application-brand"
+          to="/"
+          aria-label="Go to VaultForge home"
+        >
+          <span className="application-eyebrow">Developer secrets vault</span>
+          <span className="application-title">VaultForge</span>
+        </Link>
 
         <div className="application-header-actions">
           {status === "authenticated" && account ? (

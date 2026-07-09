@@ -68,6 +68,19 @@ a {
   font-weight: 750;
 }
 
+.application-brand {
+  display: grid;
+  gap: 0.25rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.application-brand:hover .application-title,
+.application-brand:focus-visible .application-title {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .navigation {
   display: flex;
   flex-wrap: wrap;
