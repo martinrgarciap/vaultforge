@@ -18,7 +18,7 @@ export function AppRoutes() {
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />
 
-        <Route path="generate" element={<PasswordGeneratorPage />} />
+        <Route path="password-generator" element={<PasswordGeneratorPage />} />
 
         <Route element={<RequireGuest />}>
           <Route path="register" element={<RegisterPage />} />

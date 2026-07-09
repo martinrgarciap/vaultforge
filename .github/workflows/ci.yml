@@ -166,6 +166,7 @@ jobs:
       E2E_DATABASE_URL: postgres://vaultforge:test@127.0.0.1:5432/vaultforge_e2e?sslmode=disable
       E2E_REDIS_URL: redis://127.0.0.1:6379/2
       E2E_HASH_SERVICE_ADDR: 127.0.0.1:50052
+      E2E_PASSWORD_SERVICE_ADDR: 127.0.0.1:50054
 
     steps:
       - name: Check out repository
@@ -300,6 +301,32 @@ jobs:
 
       - name: Build wasm package
         run: wasm-pack build --target web
+
+  password-service:
+    name: Password service checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/password-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+      - name: Test
+        run: cargo test
+      - name: Build
+        run: cargo build
 
   secrets:
     name: Secret scan

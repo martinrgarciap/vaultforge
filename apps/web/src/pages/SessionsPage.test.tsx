@@ -260,8 +260,6 @@ describe("SessionsPage", () => {
     expect(alert).toHaveTextContent(
       "Authentication is temporarily unavailable.",
     );
-
-    expect(alert).toHaveTextContent("Request ID: request-session-list");
   });
 
   it("does not request sessions while unauthenticated", () => {

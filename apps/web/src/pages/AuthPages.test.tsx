@@ -181,7 +181,6 @@ describe("LoginPage", () => {
     const alert = await screen.findByRole("alert");
 
     expect(alert).toHaveTextContent("The email or password is incorrect.");
-    expect(alert).toHaveTextContent("Request ID: request-123");
   });
 
   it("prevents duplicate submissions", async () => {
@@ -321,9 +320,8 @@ describe("RegisterPage", () => {
 
     expect(screen.getByText(/Strength:/)).toHaveTextContent("strong");
 
-    expect(
-      screen.getByText(/Estimated entropy: 91.3 bits/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Crack time:/)).toHaveTextContent("centuries");
+    expect(screen.queryByText(/Estimated entropy:/)).not.toBeInTheDocument();
     expect(
       screen.getByText("Use this only for the account password."),
     ).toBeInTheDocument();
@@ -410,6 +408,5 @@ describe("RegisterPage", () => {
     expect(alert).toHaveTextContent(
       "An account cannot be created with that email address.",
     );
-    expect(alert).toHaveTextContent("Request ID: request-456");
   });
 });

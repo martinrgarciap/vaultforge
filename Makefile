@@ -3,6 +3,7 @@ SHELL := /bin/bash
 API_DIR := apps/api
 WEB_DIR := apps/web
 HASH_SERVICE_DIR := services/hash-service
+PASSWORD_SERVICE_DIR := services/password-service
 CRYPTO_WASM_DIR := packages/crypto-wasm
 COMPOSE_FILE := deployments/compose.yaml
 MIGRATIONS_DIR := apps/api/migrations
@@ -20,6 +21,7 @@ E2E_DATABASE_URL ?= postgres://vaultforge:vaultforge_local_dev@127.0.0.1:5433/va
 E2E_REDIS_URL ?= redis://127.0.0.1:6380/2
 HASH_SERVICE_BIND_ADDR ?= 127.0.0.1:50051
 E2E_HASH_SERVICE_ADDR ?= 127.0.0.1:50052
+E2E_PASSWORD_SERVICE_ADDR ?= 127.0.0.1:50054
 API_BUILD_PACKAGE := github.com/martinrgarciap/vaultforge/apps/api/internal/buildinfo
 API_BUILD_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo development)
 API_BUILD_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
@@ -65,6 +67,12 @@ API_BUILD_LDFLAGS := -X $(API_BUILD_PACKAGE).Version=$(API_BUILD_VERSION) \
 	test-hash-service \
 	build-hash-service \
 	verify-hash-service \
+	format-password-service \
+	format-check-password-service \
+	lint-password-service \
+	test-password-service \
+	build-password-service \
+	verify-password-service \
 	format-crypto-wasm \
 	format-check-crypto-wasm \
 	lint-crypto-wasm \
@@ -135,10 +143,12 @@ test-web: build-crypto-wasm-pkg
 
 test-e2e: db-reset-e2e
 	HASH_SERVICE_DIR="$(HASH_SERVICE_DIR)" \
+	PASSWORD_SERVICE_DIR="$(PASSWORD_SERVICE_DIR)" \
 	WEB_DIR="$(WEB_DIR)" \
 	E2E_DATABASE_URL="$(E2E_DATABASE_URL)" \
 	E2E_REDIS_URL="$(E2E_REDIS_URL)" \
 	E2E_HASH_SERVICE_ADDR="$(E2E_HASH_SERVICE_ADDR)" \
+	E2E_PASSWORD_SERVICE_ADDR="$(E2E_PASSWORD_SERVICE_ADDR)" \
 	./scripts/test-e2e.sh
 
 lint: lint-api lint-web
@@ -182,17 +192,17 @@ build-api:
 build-web: build-crypto-wasm-pkg
 	cd $(WEB_DIR) && npm run build
 
-format-rust: format-hash-service format-crypto-wasm
+format-rust: format-hash-service format-crypto-wasm format-password-service
 
-format-check-rust: format-check-hash-service format-check-crypto-wasm
+format-check-rust: format-check-hash-service format-check-crypto-wasm format-check-password-service
 
-lint-rust: lint-hash-service lint-crypto-wasm
+lint-rust: lint-hash-service lint-crypto-wasm lint-password-service
 
-test-rust: test-hash-service test-crypto-wasm
+test-rust: test-hash-service test-crypto-wasm test-password-service
 
-build-rust: build-hash-service build-crypto-wasm build-crypto-wasm-pkg
+build-rust: build-hash-service build-crypto-wasm build-crypto-wasm-pkg build-password-service
 
-verify-rust: verify-hash-service verify-crypto-wasm
+verify-rust: verify-hash-service verify-crypto-wasm verify-password-service
 
 format-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo fmt
@@ -210,6 +220,23 @@ build-hash-service:
 	cd $(HASH_SERVICE_DIR) && cargo build
 
 verify-hash-service: format-check-hash-service lint-hash-service test-hash-service build-hash-service
+
+format-password-service:
+	cd $(PASSWORD_SERVICE_DIR) && cargo fmt
+
+format-check-password-service:
+	cd $(PASSWORD_SERVICE_DIR) && cargo fmt --check
+
+lint-password-service:
+	cd $(PASSWORD_SERVICE_DIR) && cargo clippy -- -D warnings
+
+test-password-service:
+	cd $(PASSWORD_SERVICE_DIR) && cargo test
+
+build-password-service:
+	cd $(PASSWORD_SERVICE_DIR) && cargo build
+
+verify-password-service: format-check-password-service lint-password-service test-password-service build-password-service
 
 format-crypto-wasm:
 	cd $(CRYPTO_WASM_DIR) && cargo fmt

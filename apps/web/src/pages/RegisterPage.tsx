@@ -312,8 +312,7 @@ export function RegisterPage() {
             {strengthStatus === "ready" && strength ? (
               <>
                 <p className="field-help">
-                  Strength: <strong>{strength.label}</strong>. Estimated
-                  entropy: {strength.entropyBits.toFixed(1)} bits. Crack time:
+                  Strength: <strong>{strength.label}</strong>. Crack time:{" "}
                   {strength.crackTimeEstimate}.
                 </p>
 

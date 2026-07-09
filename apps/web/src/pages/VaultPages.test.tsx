@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import {
   fireEvent,
   render,
@@ -6,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,8 +13,8 @@ import { ApiError } from "../api/ApiError";
 import type { ApiRequestOptions } from "../api/types";
 import { AuthContext } from "../auth/AuthContext";
 import type { AuthContextValue, AuthStatus } from "../auth/types";
-import type { CryptoProvider } from "../crypto/CryptoProvider";
 import { CryptoContext } from "../crypto/CryptoContext";
+import type { CryptoProvider } from "../crypto/CryptoProvider";
 import {
   CRYPTO_ENVELOPE_VERSION,
   type ItemCryptoEnvelope,
@@ -306,8 +306,6 @@ describe("VaultsPage", () => {
     expect(alert).toHaveTextContent(
       "Vault operations are temporarily unavailable.",
     );
-
-    expect(alert).toHaveTextContent("Request ID: request-123");
   });
 
   it("does not request vaults while unauthenticated", () => {

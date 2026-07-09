@@ -133,7 +133,7 @@ func (client *Client) CheckStrength(
 		Label:             strings.TrimSpace(response.GetLabel()),
 		EntropyBits:       response.GetEntropyBits(),
 		CrackTimeEstimate: strings.TrimSpace(response.GetCrackTimeEstimate()),
-		Suggestions:       append([]string(nil), response.GetSuggestions()...),
+		Suggestions:       append([]string{}, response.GetSuggestions()...),
 	}, nil
 }
 

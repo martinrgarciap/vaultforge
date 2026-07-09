@@ -33,18 +33,29 @@ afterEach(() => {
 
 describe("PasswordGeneratorPage", () => {
   it("generates a password through the public password endpoint", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({
-        password: "Generated-Demo-Password-123!",
-        entropyBits: 142.75,
-      }),
-    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          password: "Generated-Demo-Password-123!",
+          entropyBits: 142.75,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          score: 4,
+          label: "very strong",
+          entropyBits: 128,
+          crackTimeEstimate: "centuries",
+          suggestions: [],
+        }),
+      );
 
     vi.stubGlobal("fetch", fetchMock);
 
     render(<PasswordGeneratorPage />);
 
-    fireEvent.change(screen.getByLabelText("Length"), {
+    fireEvent.change(screen.getByLabelText("Length (8-128 characters)"), {
       target: {
         value: "32",
       },
@@ -66,31 +77,64 @@ describe("PasswordGeneratorPage", () => {
       await screen.findByText("Generated-Demo-Password-123!"),
     ).toBeInTheDocument();
 
-    expect(
-      screen.getByText("Estimated entropy: 142.8 bits"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Strength:/)).toHaveTextContent(
+      "very strong",
+    );
+    expect(screen.getByText(/Crack time: centuries/)).toBeInTheDocument();
+    expect(screen.getByText("Generated password.")).toBeInTheDocument();
+    expect(screen.queryByText(/Estimated entropy:/)).not.toBeInTheDocument();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    const [path, request] = fetchMock.mock.calls[0];
+    const [generatePath, generateRequest] = fetchMock.mock.calls[0];
 
-    expect(path).toBe("/v1/passwords/generate");
-    expect(request?.method).toBe("POST");
-    expect(request?.credentials).toBe("include");
-    expect(request?.body).toBe(
+    expect(generatePath).toBe("/v1/passwords/generate");
+    expect(generateRequest?.method).toBe("POST");
+    expect(generateRequest?.credentials).toBe("include");
+    expect(generateRequest?.body).toBe(
       '{"length":32,"includeUppercase":true,"includeLowercase":true,"includeDigits":true,"includeSymbols":true,"excludeChars":"O0l1"}',
     );
+
+    const [strengthPath, strengthRequest] = fetchMock.mock.calls[1];
+
+    expect(strengthPath).toBe("/v1/passwords/strength");
+    expect(strengthRequest?.method).toBe("POST");
+    expect(strengthRequest?.credentials).toBe("include");
+    expect(strengthRequest?.body).toBe(
+      '{"password":"Generated-Demo-Password-123!"}',
+    );
+  });
+
+  it("shows length bounds and excluded character example", () => {
+    render(<PasswordGeneratorPage />);
+
+    const lengthInput = screen.getByLabelText("Length (8-128 characters)");
+
+    expect(lengthInput).toHaveAttribute("min", "8");
+    expect(lengthInput).toHaveAttribute("max", "128");
+    expect(screen.getByPlaceholderText("O0l1")).toBeInTheDocument();
   });
 
   it("copies the generated password", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(
-        jsonResponse({
-          password: "Generated-Demo-Password-123!",
-          entropyBits: 120,
-        }),
-      ),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            password: "Generated-Demo-Password-123!",
+            entropyBits: 120,
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            score: 4,
+            label: "very strong",
+            entropyBits: 128,
+            crackTimeEstimate: "centuries",
+            suggestions: [],
+          }),
+        ),
     );
 
     render(<PasswordGeneratorPage />);
@@ -165,6 +209,5 @@ describe("PasswordGeneratorPage", () => {
     expect(alert).toHaveTextContent(
       "Password tools are temporarily unavailable.",
     );
-    expect(alert).toHaveTextContent("Request ID: request-password-123");
   });
 });

@@ -215,7 +215,7 @@ describe("AppRoutes", () => {
   it.each([
     ["/register", "Create your account"],
     ["/login", "Sign in"],
-    ["/generate", "Password Generator"],
+    ["/password-generator", "Password Generator"],
   ])("renders signed-out public route %s", (path, heading) => {
     renderRoute(path);
 
@@ -266,7 +266,7 @@ describe("AppRoutes", () => {
   );
 
   it("renders the password generator while signed in", () => {
-    renderRoute("/generate", {
+    renderRoute("/password-generator", {
       status: "authenticated",
     });
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FiMenu, FiX } from "react-icons/fi";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
@@ -14,6 +15,11 @@ export function AppShell() {
   const { account, logout, status } = useAuth();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false);
+  };
 
   const handleLogout = async () => {
     if (isLoggingOut) {
@@ -21,6 +27,7 @@ export function AppShell() {
     }
 
     setIsLoggingOut(true);
+    closeMobileMenu();
 
     await logout().catch(() => undefined);
 
@@ -43,27 +50,79 @@ export function AppShell() {
           <span className="application-title">VaultForge</span>
         </Link>
 
-        <div className="application-header-actions">
+        <button
+          className="mobile-menu-button"
+          type="button"
+          aria-label={isMobileMenuOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={isMobileMenuOpen}
+          aria-controls="primary-navigation"
+          onClick={() => {
+            setIsMobileMenuOpen((current) => !current);
+          }}
+        >
+          {isMobileMenuOpen ? (
+            <FiX aria-hidden="true" />
+          ) : (
+            <FiMenu aria-hidden="true" />
+          )}
+        </button>
+
+        <div
+          className={
+            isMobileMenuOpen
+              ? "application-header-actions application-header-actions-open"
+              : "application-header-actions"
+          }
+        >
+          <button
+            className="mobile-menu-close"
+            type="button"
+            aria-label="Close navigation"
+            onClick={closeMobileMenu}
+          >
+            <FiX aria-hidden="true" />
+          </button>
+
           {status === "authenticated" && account ? (
             <p className="account-greeting">Hello, {account.email}</p>
           ) : null}
 
-          <nav className="navigation" aria-label="Primary navigation">
-            <NavLink className={navLinkClassName} to="/">
+          <nav
+            className="navigation"
+            id="primary-navigation"
+            aria-label="Primary navigation"
+          >
+            <NavLink
+              className={navLinkClassName}
+              to="/"
+              onClick={closeMobileMenu}
+            >
               Home
             </NavLink>
 
-            <NavLink className={navLinkClassName} to="/generate">
+            <NavLink
+              className={navLinkClassName}
+              to="/password-generator"
+              onClick={closeMobileMenu}
+            >
               Password Generator
             </NavLink>
 
             {status === "authenticated" ? (
               <>
-                <NavLink className={navLinkClassName} to="/vaults">
+                <NavLink
+                  className={navLinkClassName}
+                  to="/vaults"
+                  onClick={closeMobileMenu}
+                >
                   Vaults
                 </NavLink>
 
-                <NavLink className={navLinkClassName} to="/sessions">
+                <NavLink
+                  className={navLinkClassName}
+                  to="/sessions"
+                  onClick={closeMobileMenu}
+                >
                   Sessions
                 </NavLink>
 
@@ -82,11 +141,19 @@ export function AppShell() {
 
             {status === "unauthenticated" ? (
               <>
-                <NavLink className={navLinkClassName} to="/login">
+                <NavLink
+                  className={navLinkClassName}
+                  to="/login"
+                  onClick={closeMobileMenu}
+                >
                   Login
                 </NavLink>
 
-                <NavLink className={navLinkClassName} to="/register">
+                <NavLink
+                  className={navLinkClassName}
+                  to="/register"
+                  onClick={closeMobileMenu}
+                >
                   Register
                 </NavLink>
               </>

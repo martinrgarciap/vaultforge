@@ -169,6 +169,43 @@ func TestCheckStrengthCallsPasswordService(t *testing.T) {
 	}
 }
 
+func TestCheckStrengthNormalizesEmptySuggestions(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakePasswordServiceClient{
+		strengthResponse: &passwordpb.CheckStrengthResponse{
+			Score:             4,
+			Label:             "very strong",
+			EntropyBits:       64,
+			CrackTimeEstimate: "57 years",
+			Suggestions:       nil,
+		},
+	}
+
+	client := &Client{
+		passwordService: fake,
+		requestTimeout:  time.Second,
+	}
+
+	result, err := client.CheckStrength(
+		context.Background(),
+		CheckStrengthInput{
+			Password: "synthetic Playwright password 2026",
+		},
+	)
+	if err != nil {
+		t.Fatalf("CheckStrength() error = %v", err)
+	}
+
+	if result.Suggestions == nil {
+		t.Fatal("CheckStrength() Suggestions is nil, want empty non-nil slice")
+	}
+
+	if len(result.Suggestions) != 0 {
+		t.Fatalf("CheckStrength() Suggestions length = %d, want 0", len(result.Suggestions))
+	}
+}
+
 func TestPasswordServiceInvalidArgumentMapsToInvalidRequest(t *testing.T) {
 	t.Parallel()
 
