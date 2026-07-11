@@ -10,6 +10,11 @@ import type { ItemType, VaultItem } from "./contracts";
 import { decryptItemApiResponse } from "./itemApiCrypto";
 import { encryptItemWriteRequest } from "./itemEncryption";
 import { ItemPayloadFields } from "./ItemPayloadFields";
+import {
+  itemFieldValue,
+  itemFormFields,
+  requiredItemFieldErrors,
+} from "./form";
 import { itemResourcePath, itemVersionHeader } from "./request";
 import {
   formatItemPayload,
@@ -24,6 +29,7 @@ interface ItemEditModalProps {
   onClose: () => void;
   onUpdated: (item: VaultItem) => void;
   onConflict: (error: unknown) => void;
+  openPasswordGenerator?: boolean;
 }
 
 function isVersionConflict(error: unknown): boolean {
@@ -41,16 +47,33 @@ export function ItemEditModal({
   onClose,
   onUpdated,
   onConflict,
+  openPasswordGenerator = false,
 }: ItemEditModalProps) {
   const { request } = useAuth();
   const { provider } = useCrypto();
   const submissionRef = useRef(false);
 
+  const initialPayload = formatItemPayload(item.payload);
   const [itemType, setItemType] = useState<ItemType>(item.type);
-  const [payload, setPayload] = useState(() => formatItemPayload(item.payload));
+  const [payload, setPayload] = useState(initialPayload);
   const [payloadError, setPayloadError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [requestError, setRequestError] = useState<unknown>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const isDirty = itemType !== item.type || payload !== initialPayload;
+  const parsedPayloadForMarkers = parseItemPayload(payload);
+  const changedFields =
+    parsedPayloadForMarkers.ok && itemType === item.type
+      ? new Set(
+          itemFormFields(itemType)
+            .filter(
+              (field) =>
+                itemFieldValue(parsedPayloadForMarkers.payload, field.key) !==
+                itemFieldValue(item.payload, field.key),
+            )
+            .map((field) => field.key),
+        )
+      : new Set<string>();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -60,11 +83,22 @@ export function ItemEditModal({
     }
 
     const parsedPayload = parseItemPayload(payload);
+    const nextFieldErrors = parsedPayload.ok
+      ? requiredItemFieldErrors(itemType, parsedPayload.payload)
+      : {};
+    const hasFieldErrors = Object.keys(nextFieldErrors).length > 0;
 
-    setPayloadError(parsedPayload.ok ? undefined : parsedPayload.error);
+    setPayloadError(
+      parsedPayload.ok
+        ? hasFieldErrors
+          ? "Complete the required fields before submitting."
+          : undefined
+        : parsedPayload.error,
+    );
+    setFieldErrors(nextFieldErrors);
     setRequestError(null);
 
-    if (!parsedPayload.ok) {
+    if (!parsedPayload.ok || hasFieldErrors) {
       return;
     }
 
@@ -130,6 +164,9 @@ export function ItemEditModal({
         <div className="form-field">
           <label className="form-label" htmlFor="edit-item-type">
             Item type
+            {itemType !== item.type ? (
+              <span className="changed-marker">Edited</span>
+            ) : null}
           </label>
 
           <select
@@ -138,6 +175,8 @@ export function ItemEditModal({
             value={itemType}
             onChange={(event) => {
               setItemType(event.target.value as ItemType);
+              setPayloadError(undefined);
+              setFieldErrors({});
               setRequestError(null);
             }}
             disabled={isSaving}
@@ -152,17 +191,29 @@ export function ItemEditModal({
 
         <ItemPayloadFields
           idPrefix="edit-item"
-          labelPrefix="Edit item"
+          actionLabel="Edit item"
           type={itemType}
           value={payload}
           onChange={(value) => {
             setPayload(value);
             setPayloadError(undefined);
+            setFieldErrors({});
             setRequestError(null);
           }}
           disabled={isSaving}
-          describedBy={payloadError ? "edit-item-error" : undefined}
+          describedBy={
+            payloadError ? "edit-item-help edit-item-error" : "edit-item-help"
+          }
+          fieldErrors={fieldErrors}
+          showPlaceholders={false}
+          enablePasswordTools
+          openPasswordGenerator={openPasswordGenerator}
+          changedFields={changedFields}
         />
+
+        <p className="field-help" id="edit-item-help">
+          Fields marked with * are required.
+        </p>
 
         {payloadError ? (
           <p className="field-error" id="edit-item-error">
@@ -185,6 +236,7 @@ export function ItemEditModal({
               onChange={(event) => {
                 setPayload(event.target.value);
                 setPayloadError(undefined);
+                setFieldErrors({});
                 setRequestError(null);
               }}
               disabled={isSaving}
@@ -204,7 +256,11 @@ export function ItemEditModal({
             Cancel
           </button>
 
-          <button className="primary-button" type="submit" disabled={isSaving}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isSaving || !isDirty}
+          >
             {isSaving ? "Saving Item..." : "Save Item"}
           </button>
         </div>

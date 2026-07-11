@@ -17,6 +17,7 @@ export interface ItemFormField {
   label: string;
   kind: ItemFormFieldKind;
   placeholder?: string;
+  required?: boolean;
   wide?: boolean;
 }
 
@@ -24,25 +25,28 @@ const fieldsByType: Record<ItemType, readonly ItemFormField[]> = {
   login: [
     {
       key: "title",
-      label: "title",
+      label: "Title",
       kind: "text",
       placeholder: "Synthetic login",
+      required: true,
     },
     {
       key: "username",
-      label: "username",
+      label: "Username",
       kind: "text",
       placeholder: "demo-user",
+      required: true,
     },
     {
       key: "password",
-      label: "password",
+      label: "Password",
       kind: "password",
       placeholder: "synthetic-password",
+      required: true,
     },
     {
       key: "website",
-      label: "website",
+      label: "Website",
       kind: "url",
       placeholder: "https://example.test",
     },
@@ -51,89 +55,101 @@ const fieldsByType: Record<ItemType, readonly ItemFormField[]> = {
   api_key: [
     {
       key: "name",
-      label: "name",
+      label: "Name",
       kind: "text",
       placeholder: "Synthetic API key",
+      required: true,
     },
     {
       key: "service",
-      label: "service",
+      label: "Service",
       kind: "text",
       placeholder: "Development service",
+      required: true,
     },
     {
       key: "apiKey",
       label: "API key",
       kind: "password",
       placeholder: "synthetic-api-key",
+      required: true,
     },
   ],
 
   environment_variable: [
     {
       key: "name",
-      label: "variable name",
+      label: "Variable name",
       kind: "text",
       placeholder: "SYNTHETIC_API_KEY",
+      required: true,
     },
     {
       key: "value",
-      label: "value",
+      label: "Value",
       kind: "password",
       placeholder: "synthetic-value",
+      required: true,
     },
   ],
 
   database_connection: [
     {
       key: "name",
-      label: "name",
+      label: "Name",
       kind: "text",
       placeholder: "Synthetic database",
+      required: true,
     },
     {
       key: "host",
-      label: "host",
+      label: "Host",
       kind: "text",
       placeholder: "localhost",
+      required: true,
     },
     {
       key: "port",
-      label: "port",
+      label: "Port",
       kind: "number",
       placeholder: "5432",
+      required: true,
     },
     {
       key: "database",
-      label: "database",
+      label: "Database",
       kind: "text",
       placeholder: "vaultforge_dev",
+      required: true,
     },
     {
       key: "username",
-      label: "username",
+      label: "Username",
       kind: "text",
       placeholder: "demo-user",
+      required: true,
     },
     {
       key: "password",
-      label: "password",
+      label: "Password",
       kind: "password",
       placeholder: "synthetic-password",
+      required: true,
     },
   ],
 
   secure_note: [
     {
       key: "title",
-      label: "title",
+      label: "Title",
       kind: "text",
       placeholder: "Synthetic note",
+      required: true,
       wide: true,
     },
     {
       key: "note",
-      label: "note",
+      label: "Note",
       kind: "multiline",
       placeholder: "Synthetic content only.",
       wide: true,
@@ -169,6 +185,29 @@ export function itemFieldValue(
   }
 
   return "";
+}
+
+export function requiredItemFieldErrors(
+  type: ItemType,
+  payload: SyntheticItemPayload,
+): Record<string, string> {
+  return Object.fromEntries(
+    itemFormFields(type)
+      .filter((field) => {
+        if (!field.required) {
+          return false;
+        }
+
+        const value = payload[field.key];
+
+        if (typeof value === "number") {
+          return !Number.isFinite(value);
+        }
+
+        return typeof value !== "string" || value.trim() === "";
+      })
+      .map((field) => [field.key, `${field.label} is required.`]),
+  );
 }
 
 export function updateItemPayloadField(

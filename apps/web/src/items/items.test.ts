@@ -20,6 +20,7 @@ import { defaultPayloadForType, parseItemPayload } from "./validation";
 import {
   itemFieldValue,
   itemPayloadObject,
+  requiredItemFieldErrors,
   updateItemPayloadField,
 } from "./form";
 
@@ -249,5 +250,28 @@ describe("structured item forms", () => {
     const payload = itemPayloadObject("secure_note", "invalid-json");
 
     expect(itemFieldValue(payload, "title")).toBe("Synthetic note");
+  });
+
+  it("validates required structured fields by item type", () => {
+    expect(requiredItemFieldErrors("secure_note", {})).toEqual({
+      title: "Title is required.",
+    });
+
+    expect(
+      requiredItemFieldErrors("login", {
+        title: "Synthetic login",
+        username: "demo-user",
+        password: "synthetic-password",
+      }),
+    ).toEqual({});
+
+    expect(
+      requiredItemFieldErrors("api_key", {
+        name: "Synthetic API key",
+      }),
+    ).toEqual({
+      service: "Service is required.",
+      apiKey: "API key is required.",
+    });
   });
 });

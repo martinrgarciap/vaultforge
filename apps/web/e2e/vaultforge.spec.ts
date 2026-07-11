@@ -200,10 +200,14 @@ async function openEditDialog(page: Page) {
   return dialog;
 }
 
+function itemNameLocator(page: Page, title: string): Locator {
+  return page.locator(".page-entity-meta").getByText(title, { exact: true });
+}
+
 async function updateItemTitle(page: Page, title: string): Promise<void> {
   const dialog = await openEditDialog(page);
 
-  await dialog.getByLabel("Edit item title").fill(title);
+  await dialog.getByLabel("Title", { exact: true }).fill(title);
 
   await dialog
     .getByRole("button", {
@@ -437,13 +441,19 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   await itemDialog.getByLabel("Item type").selectOption("login");
 
-  await itemDialog.getByLabel("New item title").fill(originalTitle);
+  await itemDialog.getByLabel("Title", { exact: true }).fill(originalTitle);
 
-  await itemDialog.getByLabel("New item website").fill("https://example.test");
+  await itemDialog
+    .getByLabel("Website", { exact: true })
+    .fill("https://example.test");
 
-  await itemDialog.getByLabel("New item username").fill("synthetic-user");
+  await itemDialog
+    .getByLabel("Username", { exact: true })
+    .fill("synthetic-user");
 
-  await itemDialog.getByLabel("New item password").fill(syntheticItemPassword);
+  await itemDialog
+    .getByLabel("Password", { exact: true })
+    .fill(syntheticItemPassword);
 
   await itemDialog
     .getByRole("button", {
@@ -464,11 +474,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     })
     .click();
 
-  await expect(
-    page.getByRole("heading", {
-      name: originalTitle,
-    }),
-  ).toBeVisible();
+  await expect(itemNameLocator(page, originalTitle)).toBeVisible();
 
   await expect(page.getByText(syntheticItemPassword)).toHaveCount(0);
 
@@ -530,16 +536,10 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
   await setupOrUnlockVault(
     page,
     vaultPassphrase,
-    page.getByRole("heading", {
-      name: originalTitle,
-    }),
+    itemNameLocator(page, originalTitle),
   );
 
-  await expect(
-    page.getByRole("heading", {
-      name: originalTitle,
-    }),
-  ).toBeVisible();
+  await expect(itemNameLocator(page, originalTitle)).toBeVisible();
 
   await expect(page.getByText(syntheticItemPassword)).toHaveCount(0);
 
@@ -560,9 +560,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
 
   try {
     await expect(
-      secondBrowser.page.getByRole("heading", {
-        name: originalTitle,
-      }),
+      itemNameLocator(secondBrowser.page, originalTitle),
     ).toBeVisible();
 
     // Both browsers loaded version 1. The second
@@ -570,9 +568,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
     await updateItemTitle(secondBrowser.page, concurrentTitle);
 
     await expect(
-      secondBrowser.page.getByRole("heading", {
-        name: concurrentTitle,
-      }),
+      itemNameLocator(secondBrowser.page, concurrentTitle),
     ).toBeVisible();
 
     // The first browser still submits version 1.
@@ -599,11 +595,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
       })
       .click();
 
-    await expect(
-      page.getByRole("heading", {
-        name: concurrentTitle,
-      }),
-    ).toBeVisible();
+    await expect(itemNameLocator(page, concurrentTitle)).toBeVisible();
 
     await expectNoAccessibilityViolations(page);
 
@@ -613,11 +605,7 @@ test("real browser workflow crosses the frontend, API, and PostgreSQL boundaries
         height: viewport.height,
       });
 
-      await expect(
-        page.getByRole("heading", {
-          name: concurrentTitle,
-        }),
-      ).toBeVisible();
+      await expect(itemNameLocator(page, concurrentTitle)).toBeVisible();
 
       await expectNoDocumentOverflow(page);
     }

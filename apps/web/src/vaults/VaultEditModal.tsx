@@ -29,11 +29,12 @@ export function VaultEditModal({
   const [nameError, setNameError] = useState<string>();
   const [requestError, setRequestError] = useState<unknown>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const isDirty = name !== vault.name;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (submissionRef.current) {
+    if (submissionRef.current || !isDirty) {
       return;
     }
 
@@ -91,6 +92,7 @@ export function VaultEditModal({
         <div className="form-field">
           <label className="form-label" htmlFor="edit-vault-name">
             Vault name
+            {isDirty ? <span className="changed-marker">Edited</span> : null}
           </label>
 
           <input
@@ -128,7 +130,11 @@ export function VaultEditModal({
             Cancel
           </button>
 
-          <button className="primary-button" type="submit" disabled={isSaving}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isSaving || !isDirty}
+          >
             {isSaving ? "Saving Changes..." : "Save Changes"}
           </button>
         </div>

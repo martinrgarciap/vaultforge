@@ -27,8 +27,8 @@ import {
 import { itemTypeLabel } from "../items/validation";
 import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
-import { VaultCryptoGate } from "../vaults/VaultCryptoGate";
 import { useVaultUnlock } from "../vaults/useVaultUnlock";
+import { VaultCryptoGate } from "../vaults/VaultCryptoGate";
 
 function isVersionConflict(error: unknown): boolean {
   return (
@@ -58,6 +58,7 @@ export function ItemDetailPage() {
   const [reloadVersion, setReloadVersion] = useState(0);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [openPasswordGenerator, setOpenPasswordGenerator] = useState(false);
   const [deleteMode, setDeleteMode] = useState<"soft" | "permanent" | null>(
     null,
   );
@@ -137,6 +138,7 @@ export function ItemDetailPage() {
 
   const closeEditModal = useCallback(() => {
     setIsEditOpen(false);
+    setOpenPasswordGenerator(false);
   }, []);
 
   const closeDeleteModal = useCallback(() => {
@@ -411,18 +413,25 @@ export function ItemDetailPage() {
             <div className="page-heading-copy">
               <p className="page-kicker">Item Details</p>
 
-              <h1>{itemDisplayName(item)}</h1>
+              <h1>Item Details</h1>
+
+              <dl className="page-entity-meta">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{itemDisplayName(item)}</dd>
+                </div>
+              </dl>
 
               <div className="item-heading-context">
-                <span className="item-type-badge">
-                  {itemTypeLabel(item.type)}
-                </span>
-
                 <span>
-                  In{" "}
+                  <span className="item-type-badge">
+                    {itemTypeLabel(item.type)}
+                  </span>{" "}
+                  in{" "}
                   <Link className="item-vault-link" to={vaultPath}>
                     {vault.name}
-                  </Link>
+                  </Link>{" "}
+                  vault
                 </span>
 
                 <span
@@ -469,6 +478,7 @@ export function ItemDetailPage() {
                     className="primary-button"
                     type="button"
                     onClick={() => {
+                      setOpenPasswordGenerator(false);
                       setIsEditOpen(true);
                       setActionError(null);
                     }}
@@ -497,6 +507,15 @@ export function ItemDetailPage() {
             <ItemDetails
               key={`${item.id}-${item.version}-${item.deletedAt ?? "active"}`}
               item={item}
+              onGenerateSecurePassword={
+                item.deletedAt || !vaultKey
+                  ? undefined
+                  : () => {
+                      setOpenPasswordGenerator(true);
+                      setIsEditOpen(true);
+                      setActionError(null);
+                    }
+              }
             />
 
             {actionError && !deleteMode ? (
@@ -526,6 +545,7 @@ export function ItemDetailPage() {
               vaultId={vault.id}
               vaultKey={vaultKey}
               item={item}
+              openPasswordGenerator={openPasswordGenerator}
               onClose={closeEditModal}
               onUpdated={(updatedItem) => {
                 setItem(updatedItem);

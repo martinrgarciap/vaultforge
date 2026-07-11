@@ -13,6 +13,9 @@ import {
   unlockVaultCrypto,
 } from "./vaultCrypto";
 
+const minimumVaultPassphraseLength = 8;
+const maximumVaultPassphraseLength = 64;
+
 interface VaultCryptoGateProps {
   vault: Vault;
   onVaultUpdated: (vault: Vault) => void;
@@ -104,6 +107,17 @@ export function VaultCryptoGate({
       return;
     }
 
+    if (
+      !cryptoInitialized &&
+      (normalizedPassphrase.length < minimumVaultPassphraseLength ||
+        normalizedPassphrase.length > maximumVaultPassphraseLength)
+    ) {
+      setPassphraseError(
+        `Vault passphrase must contain between ${minimumVaultPassphraseLength} and ${maximumVaultPassphraseLength} characters.`,
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -151,10 +165,7 @@ export function VaultCryptoGate({
 
       <p>{description}</p>
 
-      <p>
-        The passphrase and unwrapped vault key stay in browser memory. They are
-        not sent to the Go API.
-      </p>
+      <p>The passphrase and unwrapped vault key stay in browser memory.</p>
 
       {requestError ? <ApiErrorMessage error={requestError} /> : null}
 
@@ -182,6 +193,12 @@ export function VaultCryptoGate({
             }}
             autoComplete="new-password"
             disabled={isSubmitting}
+            minLength={
+              cryptoInitialized ? undefined : minimumVaultPassphraseLength
+            }
+            maxLength={
+              cryptoInitialized ? undefined : maximumVaultPassphraseLength
+            }
             required
             aria-invalid={passphraseError ? true : undefined}
             aria-describedby={
@@ -192,8 +209,10 @@ export function VaultCryptoGate({
           />
 
           <p className="field-help" id="vault-passphrase-help">
-            Use synthetic demo data only. This project is not audited for real
-            credentials.
+            {cryptoInitialized
+              ? "Enter this vault's passphrase. Use synthetic demo data only."
+              : `Use between ${minimumVaultPassphraseLength} and ${maximumVaultPassphraseLength} characters. Use synthetic demo data only.`}{" "}
+            This project is not audited for real credentials.
           </p>
 
           {passphraseError ? (

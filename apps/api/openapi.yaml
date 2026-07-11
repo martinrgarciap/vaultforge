@@ -24,37 +24,37 @@ paths:
       operationId: getHealth
       tags: [Health]
       responses:
-        '200':
-          $ref: '#/components/responses/HealthOK'
+        "200":
+          $ref: "#/components/responses/HealthOK"
 
   /health/live:
     get:
       operationId: getLiveness
       tags: [Health]
       responses:
-        '200':
-          $ref: '#/components/responses/HealthOK'
+        "200":
+          $ref: "#/components/responses/HealthOK"
 
   /health/ready:
     get:
       operationId: getReadiness
       tags: [Health]
       responses:
-        '200':
-          $ref: '#/components/responses/HealthOK'
-        '503':
+        "200":
+          $ref: "#/components/responses/HealthOK"
+        "503":
           description: PostgreSQL or Redis is unavailable.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthResponse'
+                $ref: "#/components/schemas/HealthResponse"
 
   /health/diagnostics:
     get:
       operationId: getDiagnostics
       tags: [Health]
       responses:
-        '200':
+        "200":
           description: Sanitized build metadata.
           headers:
             Cache-Control:
@@ -63,7 +63,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DiagnosticsResponse'
+                $ref: "#/components/schemas/DiagnosticsResponse"
 
   /internal/metrics:
     get:
@@ -71,14 +71,14 @@ paths:
       tags: [Internal]
       description: Available only when the direct peer is loopback.
       responses:
-        '200':
+        "200":
           description: Prometheus text exposition.
           content:
             text/plain:
               schema:
                 type: string
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/auth/register:
     post:
@@ -89,22 +89,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CredentialsRequest'
+              $ref: "#/components/schemas/CredentialsRequest"
       responses:
-        '201':
+        "201":
           description: Account created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AccountResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/AccountResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/auth/login:
     post:
@@ -115,9 +115,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CredentialsRequest'
+              $ref: "#/components/schemas/CredentialsRequest"
       responses:
-        '200':
+        "200":
           description: Session created. Refresh and CSRF cookies are also set.
           headers:
             Cache-Control:
@@ -129,26 +129,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/auth/refresh:
     post:
       operationId: refreshSession
       tags: [Authentication]
       parameters:
-        - $ref: '#/components/parameters/RefreshCookie'
-        - $ref: '#/components/parameters/CSRFCookie'
-        - $ref: '#/components/parameters/CSRFHeader'
+        - $ref: "#/components/parameters/RefreshCookie"
+        - $ref: "#/components/parameters/CSRFCookie"
+        - $ref: "#/components/parameters/CSRFHeader"
       responses:
-        '200':
+        "200":
           description: Access token refreshed and browser cookies rotated.
           headers:
             Cache-Control:
@@ -160,15 +160,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RefreshResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/RefreshResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/passwords/generate:
     post:
@@ -180,9 +180,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PasswordGenerateRequest'
+              $ref: "#/components/schemas/PasswordGenerateRequest"
       responses:
-        '200':
+        "200":
           description: Generated password result.
           headers:
             Cache-Control:
@@ -191,19 +191,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PasswordGenerateResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '413':
-          $ref: '#/components/responses/ErrorResponse'
-        '415':
-          $ref: '#/components/responses/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/PasswordGenerateResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/ErrorResponse"
+        "415":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/passwords/strength:
     post:
@@ -215,9 +215,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PasswordStrengthRequest'
+              $ref: "#/components/schemas/PasswordStrengthRequest"
       responses:
-        '200':
+        "200":
           description: Password strength result.
           headers:
             Cache-Control:
@@ -226,19 +226,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PasswordStrengthResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '413':
-          $ref: '#/components/responses/ErrorResponse'
-        '415':
-          $ref: '#/components/responses/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/PasswordStrengthResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/ErrorResponse"
+        "415":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/sessions:
     get:
@@ -247,16 +247,16 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '200':
+        "200":
           description: Active session families.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionListResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/SessionListResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     delete:
       operationId: logoutAllSessions
@@ -264,12 +264,12 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '204':
-          $ref: '#/components/responses/NoContent'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/sessions/current:
     delete:
@@ -278,30 +278,30 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '204':
-          $ref: '#/components/responses/NoContent'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/sessions/{sessionID}:
     parameters:
-      - $ref: '#/components/parameters/SessionID'
+      - $ref: "#/components/parameters/SessionID"
     delete:
       operationId: revokeSession
       tags: [Sessions]
       security:
         - BearerAuth: []
       responses:
-        '204':
-          $ref: '#/components/responses/NoContent'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults:
     get:
@@ -310,16 +310,16 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '200':
+        "200":
           description: Owner-scoped vault list.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultListResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/VaultListResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     post:
       operationId: createVault
@@ -331,26 +331,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/VaultNameRequest'
+              $ref: "#/components/schemas/VaultNameRequest"
       responses:
-        '201':
+        "201":
           description: Vault created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/VaultResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
+      - $ref: "#/components/parameters/VaultID"
 
     get:
       operationId: getVault
@@ -358,18 +358,18 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '200':
+        "200":
           description: Owner-scoped vault.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/VaultResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     patch:
       operationId: renameVault
@@ -381,24 +381,24 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/VaultNameRequest'
+              $ref: "#/components/schemas/VaultNameRequest"
       responses:
-        '200':
+        "200":
           description: Renamed vault.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/VaultResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     delete:
       operationId: deleteVault
@@ -406,20 +406,20 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        '204':
-          $ref: '#/components/responses/NoContent'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}/crypto:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
+      - $ref: "#/components/parameters/VaultID"
 
     put:
       operationId: initializeVaultCrypto
@@ -431,32 +431,32 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/VaultCryptoMetadataRequest'
+              $ref: "#/components/schemas/VaultCryptoMetadataRequest"
       responses:
-        '200':
+        "200":
           description: Vault crypto metadata initialized.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/VaultResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}/items:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
+      - $ref: "#/components/parameters/VaultID"
 
     get:
       operationId: listItems
@@ -464,24 +464,24 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/ItemState'
-        - $ref: '#/components/parameters/ItemLimit'
-        - $ref: '#/components/parameters/ItemCursor'
+        - $ref: "#/components/parameters/ItemState"
+        - $ref: "#/components/parameters/ItemLimit"
+        - $ref: "#/components/parameters/ItemCursor"
       responses:
-        '200':
+        "200":
           description: Keyset-paginated owner-scoped item list.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ItemListResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+                $ref: "#/components/schemas/ItemListResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     post:
       operationId: createItem
@@ -489,33 +489,33 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ItemWriteRequest'
+              $ref: "#/components/schemas/ItemWriteRequest"
       responses:
-        '201':
-          $ref: '#/components/responses/ItemCreated'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "201":
+          $ref: "#/components/responses/ItemCreated"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}/items/{itemID}:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
-      - $ref: '#/components/parameters/ItemID'
+      - $ref: "#/components/parameters/VaultID"
+      - $ref: "#/components/parameters/ItemID"
 
     get:
       operationId: getItem
@@ -523,18 +523,18 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/ItemState'
+        - $ref: "#/components/parameters/ItemState"
       responses:
-        '200':
-          $ref: '#/components/responses/ItemOK'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "200":
+          $ref: "#/components/responses/ItemOK"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     put:
       operationId: updateItem
@@ -542,28 +542,28 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
+        - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ItemWriteRequest'
+              $ref: "#/components/schemas/ItemWriteRequest"
       responses:
-        '200':
-          $ref: '#/components/responses/ItemOK'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '412':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "200":
+          $ref: "#/components/responses/ItemOK"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "412":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
     delete:
       operationId: softDeleteItem
@@ -571,29 +571,29 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
+        - $ref: "#/components/parameters/IfMatch"
       responses:
-        '200':
-          $ref: '#/components/responses/ItemOK'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '412':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "200":
+          $ref: "#/components/responses/ItemOK"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "412":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}/items/{itemID}/restore:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
-      - $ref: '#/components/parameters/ItemID'
+      - $ref: "#/components/parameters/VaultID"
+      - $ref: "#/components/parameters/ItemID"
 
     post:
       operationId: restoreItem
@@ -601,29 +601,29 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
+        - $ref: "#/components/parameters/IfMatch"
       responses:
-        '200':
-          $ref: '#/components/responses/ItemOK'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '412':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "200":
+          $ref: "#/components/responses/ItemOK"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "412":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/vaults/{vaultID}/items/{itemID}/permanent:
     parameters:
-      - $ref: '#/components/parameters/VaultID'
-      - $ref: '#/components/parameters/ItemID'
+      - $ref: "#/components/parameters/VaultID"
+      - $ref: "#/components/parameters/ItemID"
 
     delete:
       operationId: permanentlyDeleteItem
@@ -631,24 +631,24 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
+        - $ref: "#/components/parameters/IfMatch"
       responses:
-        '204':
-          $ref: '#/components/responses/NoContent'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '409':
-          $ref: '#/components/responses/ErrorResponse'
-        '412':
-          $ref: '#/components/responses/ErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedResponse'
-        '503':
-          $ref: '#/components/responses/ErrorResponse'
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "412":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimitedResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
 
 components:
   securitySchemes:
@@ -758,14 +758,14 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/HealthResponse'
+            $ref: "#/components/schemas/HealthResponse"
 
     ErrorResponse:
       description: Safe public error envelope.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorEnvelope'
+            $ref: "#/components/schemas/ErrorEnvelope"
 
     RateLimitedResponse:
       description: Request limit exceeded.
@@ -776,7 +776,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorEnvelope'
+            $ref: "#/components/schemas/ErrorEnvelope"
 
     NoContent:
       description: Operation completed with no response body.
@@ -785,21 +785,21 @@ components:
       description: Item created or replayed from durable idempotency state.
       headers:
         ETag:
-          $ref: '#/components/headers/ETag'
+          $ref: "#/components/headers/ETag"
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ItemResponse'
+            $ref: "#/components/schemas/ItemResponse"
 
     ItemOK:
       description: Current item representation.
       headers:
         ETag:
-          $ref: '#/components/headers/ETag'
+          $ref: "#/components/headers/ETag"
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ItemResponse'
+            $ref: "#/components/schemas/ItemResponse"
 
   headers:
     ETag:
@@ -859,7 +859,7 @@ components:
         - user
       properties:
         user:
-          $ref: '#/components/schemas/Account'
+          $ref: "#/components/schemas/Account"
 
     LoginResponse:
       type: object
@@ -872,7 +872,7 @@ components:
         - refreshTokenExpiresAt
       properties:
         user:
-          $ref: '#/components/schemas/Account'
+          $ref: "#/components/schemas/Account"
         tokenType:
           type: string
           enum:
@@ -1089,7 +1089,7 @@ components:
         sessions:
           type: array
           items:
-            $ref: '#/components/schemas/Session'
+            $ref: "#/components/schemas/Session"
 
     VaultNameRequest:
       type: object
@@ -1173,7 +1173,7 @@ components:
         - vault
       properties:
         vault:
-          $ref: '#/components/schemas/Vault'
+          $ref: "#/components/schemas/Vault"
 
     VaultListResponse:
       type: object
@@ -1184,7 +1184,7 @@ components:
         vaults:
           type: array
           items:
-            $ref: '#/components/schemas/Vault'
+            $ref: "#/components/schemas/Vault"
 
     ItemType:
       type: string
@@ -1226,9 +1226,9 @@ components:
         - encryptedPayload
       properties:
         type:
-          $ref: '#/components/schemas/ItemType'
+          $ref: "#/components/schemas/ItemType"
         encryptedPayload:
-          $ref: '#/components/schemas/ItemEncryptedPayload'
+          $ref: "#/components/schemas/ItemEncryptedPayload"
 
     Item:
       type: object
@@ -1244,9 +1244,9 @@ components:
         id:
           type: string
         type:
-          $ref: '#/components/schemas/ItemType'
+          $ref: "#/components/schemas/ItemType"
         encryptedPayload:
-          $ref: '#/components/schemas/ItemEncryptedPayload'
+          $ref: "#/components/schemas/ItemEncryptedPayload"
         version:
           type: integer
           minimum: 1
@@ -1268,7 +1268,7 @@ components:
         - item
       properties:
         item:
-          $ref: '#/components/schemas/Item'
+          $ref: "#/components/schemas/Item"
 
     ItemListResponse:
       type: object
@@ -1279,7 +1279,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/Item'
+            $ref: "#/components/schemas/Item"
         nextCursor:
           type: string
           minLength: 1

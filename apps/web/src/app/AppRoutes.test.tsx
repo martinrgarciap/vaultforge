@@ -349,9 +349,7 @@ describe("AppRoutes", () => {
     });
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Synthetic Note",
-      }),
+      (await screen.findAllByText("Synthetic Note"))[0],
     ).toBeInTheDocument();
   });
 

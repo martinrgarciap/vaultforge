@@ -257,6 +257,58 @@ describe("VaultCryptoGate", () => {
     ).toBeInTheDocument();
   });
 
+  it("requires a stronger passphrase before setting up vault encryption", () => {
+    const requestMock = vi.fn(async () => ({
+      vault: initializedVault,
+    }));
+
+    renderGate({
+      vault: baseVault,
+      requestImplementation: requestMock,
+    });
+
+    fireEvent.change(screen.getByLabelText("Vault passphrase"), {
+      target: {
+        value: "short",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Set Up Vault Encryption",
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        "Vault passphrase must contain between 8 and 64 characters.",
+      ),
+    ).toBeInTheDocument();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("allows short existing passphrases when unlocking initialized vaults", async () => {
+    const provider = createTestCryptoProvider();
+
+    renderGate({
+      vault: initializedVault,
+      provider,
+    });
+
+    fireEvent.change(screen.getByLabelText("Vault passphrase"), {
+      target: {
+        value: "short",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Unlock Vault",
+      }),
+    );
+
+    expect(await screen.findByText("Unlocked workspace")).toBeInTheDocument();
+    expect(provider.unwrapKey).toHaveBeenCalledTimes(1);
+  });
+
   it("locks an unlocked vault and returns to the unlock form", async () => {
     renderGate({
       vault: initializedVault,

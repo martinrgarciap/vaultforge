@@ -231,11 +231,7 @@ describe("ItemDetailPage", () => {
   it("shows the parent vault and protects sensitive values", async () => {
     renderItemPage(responseFor());
 
-    expect(
-      await screen.findByRole("heading", {
-        name: "Test Login",
-      }),
-    ).toBeInTheDocument();
+    expect((await screen.findAllByText("Test Login"))[0]).toBeInTheDocument();
 
     expect(
       screen.getByRole("link", {
@@ -299,9 +295,7 @@ describe("ItemDetailPage", () => {
     renderItemPage(requestMock);
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Encrypted Test Login",
-      }),
+      (await screen.findAllByText("Encrypted Test Login"))[0],
     ).toBeInTheDocument();
 
     expect(screen.getByText("encrypted@example.com")).toBeInTheDocument();
@@ -339,9 +333,7 @@ describe("ItemDetailPage", () => {
 
     renderItemPage(requestMock);
 
-    await screen.findByRole("heading", {
-      name: "Test Login",
-    });
+    await screen.findAllByText("Test Login");
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -353,7 +345,7 @@ describe("ItemDetailPage", () => {
       name: "Edit Item",
     });
 
-    fireEvent.change(within(dialog).getByLabelText("Edit item title"), {
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
       target: {
         value: "Updated Login",
       },
@@ -366,9 +358,7 @@ describe("ItemDetailPage", () => {
     );
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Updated Login",
-      }),
+      (await screen.findAllByText("Updated Login"))[0],
     ).toBeInTheDocument();
 
     expect(
@@ -430,9 +420,7 @@ describe("ItemDetailPage", () => {
 
     renderItemPage(requestMock);
 
-    await screen.findByRole("heading", {
-      name: "Test Login",
-    });
+    await screen.findAllByText("Test Login");
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -626,9 +614,7 @@ describe("ItemDetailPage", () => {
 
     renderItemPage(requestMock);
 
-    await screen.findByRole("heading", {
-      name: "Test Login",
-    });
+    await screen.findAllByText("Test Login");
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -640,7 +626,7 @@ describe("ItemDetailPage", () => {
       name: "Edit Item",
     });
 
-    fireEvent.change(within(dialog).getByLabelText("Edit item title"), {
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
       target: {
         value: "Conflicting Update",
       },

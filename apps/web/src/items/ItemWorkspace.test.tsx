@@ -459,19 +459,19 @@ describe("ItemWorkspace", () => {
       },
     });
 
-    fireEvent.change(within(dialog).getByLabelText("New item name"), {
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
       target: {
         value: "Created Key",
       },
     });
 
-    fireEvent.change(within(dialog).getByLabelText("New item service"), {
+    fireEvent.change(within(dialog).getByLabelText("Service"), {
       target: {
         value: "Development Service",
       },
     });
 
-    fireEvent.change(within(dialog).getByLabelText("New item API key"), {
+    fireEvent.change(within(dialog).getByLabelText("API key"), {
       target: {
         value: "synthetic-value",
       },
@@ -519,6 +519,53 @@ describe("ItemWorkspace", () => {
     expect(new Headers(createCall![1]?.headers).get("Idempotency-Key")).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
+  });
+
+  it("starts create item fields empty and reveals secret inputs on request", async () => {
+    renderWorkspace(
+      vi.fn(async () => ({
+        items: [],
+      })),
+    );
+
+    await screen.findByText("No active items are stored in this vault.");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create Item",
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Create an item",
+    });
+
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("");
+    expect(
+      within(dialog).getByPlaceholderText("Synthetic note"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByPlaceholderText("Synthetic content only."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText("Item type"), {
+      target: {
+        value: "api_key",
+      },
+    });
+
+    const apiKeyInput = within(dialog).getByLabelText("API key");
+
+    expect(apiKeyInput).toHaveValue("");
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Show new item API key",
+      }),
+    );
+
+    expect(apiKeyInput).toHaveAttribute("type", "text");
   });
 
   it("loads another keyset page", async () => {

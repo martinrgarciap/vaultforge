@@ -121,6 +121,24 @@ function renderVaultList(
   );
 }
 
+async function unlockVault() {
+  fireEvent.change(screen.getByLabelText("Vault passphrase"), {
+    target: {
+      value: "synthetic passphrase",
+    },
+  });
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Set Up Vault Encryption",
+    }),
+  );
+
+  await screen.findByRole("button", {
+    name: "Edit",
+  });
+}
+
 function renderVaultDetail(requestImplementation: RequestImplementation) {
   render(
     <MemoryRouter initialEntries={["/vaults/vault-123"]}>
@@ -337,6 +355,12 @@ describe("VaultDetailPage", () => {
           };
         }
 
+        if (path.endsWith("/crypto") && options?.method === "PUT") {
+          return {
+            vault,
+          };
+        }
+
         if (path.includes("/items?")) {
           return {
             items: [],
@@ -370,6 +394,8 @@ describe("VaultDetailPage", () => {
     expect(screen.queryByText("KDF version")).not.toBeInTheDocument();
 
     expect(screen.queryByText("vault-123")).not.toBeInTheDocument();
+
+    await unlockVault();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -422,6 +448,12 @@ describe("VaultDetailPage", () => {
           return undefined;
         }
 
+        if (path.endsWith("/crypto") && options?.method === "PUT") {
+          return {
+            vault,
+          };
+        }
+
         if (path.includes("/items?")) {
           return {
             items: [],
@@ -439,6 +471,8 @@ describe("VaultDetailPage", () => {
     await screen.findByRole("heading", {
       name: "Vault Details",
     });
+
+    await unlockVault();
 
     fireEvent.click(
       screen.getByRole("button", {

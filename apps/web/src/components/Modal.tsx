@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
 import { useEffect, useId, useRef } from "react";
+import { FiX } from "react-icons/fi";
 
 interface ModalProps {
   title: string;
@@ -178,7 +179,7 @@ export function Modal({
             disabled={isBusy}
             aria-label={`Close ${title}`}
           >
-            ×
+            <FiX aria-hidden="true" />
           </button>
         </div>
 

@@ -9,9 +9,9 @@ import type { ItemType, VaultItem } from "./contracts";
 import { decryptItemApiResponse } from "./itemApiCrypto";
 import { encryptItemWriteRequest } from "./itemEncryption";
 import { ItemPayloadFields } from "./ItemPayloadFields";
+import { requiredItemFieldErrors } from "./form";
 import { createItemIdempotencyKey, itemCreatePath } from "./request";
 import {
-  defaultPayloadForType,
   formatItemPayload,
   itemTypeOptions,
   parseItemPayload,
@@ -35,10 +35,9 @@ export function ItemCreateModal({
   const submissionRef = useRef(false);
 
   const [itemType, setItemType] = useState<ItemType>("secure_note");
-  const [payload, setPayload] = useState(() =>
-    formatItemPayload(defaultPayloadForType("secure_note")),
-  );
+  const [payload, setPayload] = useState(() => formatItemPayload({}));
   const [payloadError, setPayloadError] = useState<string | undefined>();
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [requestError, setRequestError] = useState<unknown>(null);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -50,11 +49,22 @@ export function ItemCreateModal({
     }
 
     const parsedPayload = parseItemPayload(payload);
+    const nextFieldErrors = parsedPayload.ok
+      ? requiredItemFieldErrors(itemType, parsedPayload.payload)
+      : {};
+    const hasFieldErrors = Object.keys(nextFieldErrors).length > 0;
 
-    setPayloadError(parsedPayload.ok ? undefined : parsedPayload.error);
+    setPayloadError(
+      parsedPayload.ok
+        ? hasFieldErrors
+          ? "Complete the required fields before submitting."
+          : undefined
+        : parsedPayload.error,
+    );
+    setFieldErrors(nextFieldErrors);
     setRequestError(null);
 
-    if (!parsedPayload.ok) {
+    if (!parsedPayload.ok || hasFieldErrors) {
       return;
     }
 
@@ -126,8 +136,9 @@ export function ItemCreateModal({
               const type = event.target.value as ItemType;
 
               setItemType(type);
-              setPayload(formatItemPayload(defaultPayloadForType(type)));
+              setPayload(formatItemPayload({}));
               setPayloadError(undefined);
+              setFieldErrors({});
               setRequestError(null);
             }}
             disabled={isCreating}
@@ -142,12 +153,13 @@ export function ItemCreateModal({
 
         <ItemPayloadFields
           idPrefix="create-item"
-          labelPrefix="New item"
+          actionLabel="New item"
           type={itemType}
           value={payload}
           onChange={(value) => {
             setPayload(value);
             setPayloadError(undefined);
+            setFieldErrors({});
             setRequestError(null);
           }}
           disabled={isCreating}
@@ -156,10 +168,12 @@ export function ItemCreateModal({
               ? "create-item-help create-item-error"
               : "create-item-help"
           }
+          fieldErrors={fieldErrors}
         />
 
         <p className="field-help" id="create-item-help">
-          These fields are converted into one JSON object.
+          Fields marked with * are required. These fields are converted into one
+          JSON object.
         </p>
 
         {payloadError ? (
@@ -183,6 +197,7 @@ export function ItemCreateModal({
               onChange={(event) => {
                 setPayload(event.target.value);
                 setPayloadError(undefined);
+                setFieldErrors({});
                 setRequestError(null);
               }}
               disabled={isCreating}

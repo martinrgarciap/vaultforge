@@ -16,6 +16,7 @@ import type { Vault } from "../vaults/contracts";
 import { parseVaultResponse } from "../vaults/contracts";
 import { VaultCryptoGate } from "../vaults/VaultCryptoGate";
 import { VaultEditModal } from "../vaults/VaultEditModal";
+import { useVaultUnlock } from "../vaults/useVaultUnlock";
 
 function formatTimestamp(value: string): string {
   const timestamp = new Date(value);
@@ -31,6 +32,7 @@ export function VaultDetailPage() {
   const { vaultId } = useParams();
   const navigate = useNavigate();
   const { request, status } = useAuth();
+  const { getVaultKey } = useVaultUnlock();
 
   const deletingRef = useRef(false);
 
@@ -132,6 +134,8 @@ export function VaultDetailPage() {
     }
   };
 
+  const vaultKey = vault ? getVaultKey(vault.id) : null;
+
   return (
     <section className="page-card vault-page">
       <BackIconLink to="/vaults" label="Back to Vault List" />
@@ -215,54 +219,63 @@ export function VaultDetailPage() {
 
               <h1>Vault Details</h1>
 
-              <p className="page-entity-name">{vault.name}</p>
+              <dl className="page-entity-meta">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{vault.name}</dd>
+                </div>
+              </dl>
             </div>
 
-            <div className="page-heading-actions">
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => {
-                  setIsEditOpen(true);
-                }}
-              >
-                Edit
-              </button>
+            {vaultKey ? (
+              <div className="page-heading-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => {
+                    setIsEditOpen(true);
+                  }}
+                >
+                  Edit
+                </button>
 
-              <button
-                className="danger-button"
-                type="button"
-                onClick={() => {
-                  setIsDeleteOpen(true);
-                  setDeleteError(null);
-                }}
-              >
-                Delete
-              </button>
-            </div>
+                <button
+                  className="danger-button"
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteOpen(true);
+                    setDeleteError(null);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            ) : null}
           </div>
 
-          <dl className="vault-summary-grid">
-            <div>
-              <dt>Created</dt>
+          {vaultKey ? (
+            <dl className="vault-summary-grid">
+              <div>
+                <dt>Created</dt>
 
-              <dd>
-                <time dateTime={vault.createdAt}>
-                  {formatTimestamp(vault.createdAt)}
-                </time>
-              </dd>
-            </div>
+                <dd>
+                  <time dateTime={vault.createdAt}>
+                    {formatTimestamp(vault.createdAt)}
+                  </time>
+                </dd>
+              </div>
 
-            <div>
-              <dt>Last Updated</dt>
+              <div>
+                <dt>Last Updated</dt>
 
-              <dd>
-                <time dateTime={vault.updatedAt}>
-                  {formatTimestamp(vault.updatedAt)}
-                </time>
-              </dd>
-            </div>
-          </dl>
+                <dd>
+                  <time dateTime={vault.updatedAt}>
+                    {formatTimestamp(vault.updatedAt)}
+                  </time>
+                </dd>
+              </div>
+            </dl>
+          ) : null}
 
           <div className="vault-detail-content">
             <VaultCryptoGate vault={vault} onVaultUpdated={handleVaultUpdated}>
@@ -276,7 +289,7 @@ export function VaultDetailPage() {
             </VaultCryptoGate>
           </div>
 
-          {isEditOpen ? (
+          {isEditOpen && vaultKey ? (
             <VaultEditModal
               vault={vault}
               onClose={closeEditModal}
@@ -284,7 +297,7 @@ export function VaultDetailPage() {
             />
           ) : null}
 
-          {isDeleteOpen ? (
+          {isDeleteOpen && vaultKey ? (
             <ConfirmModal
               title="Delete Vault?"
               eyebrow="Vault Workspace"
