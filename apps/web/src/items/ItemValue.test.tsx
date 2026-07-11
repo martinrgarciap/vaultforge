@@ -206,7 +206,26 @@ describe("ItemValue", () => {
     expect(screen.getByText("https://example.test/path")).toBeInTheDocument();
   });
 
-  it("does not link an unsafe or non-URL value", () => {
+  it("assumes https for a scheme-less website value", () => {
+    renderItemValue(
+      {},
+      {
+        label: "Website",
+        value: "www.google.com",
+        sensitive: false,
+        copyable: false,
+        link: true,
+      },
+    );
+
+    expect(
+      screen.getByRole("link", {
+        name: "Open website",
+      }),
+    ).toHaveAttribute("href", "https://www.google.com");
+  });
+
+  it("does not link a non-http(s) scheme", () => {
     renderItemValue(
       {},
       {

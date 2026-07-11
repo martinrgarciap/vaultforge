@@ -13,16 +13,23 @@ interface ItemValueProps {
   link?: boolean;
 }
 
-function safeHttpUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
+const hasSchemePattern = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const hasHttpSchemePattern = /^https?:/i;
 
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : null;
-  } catch {
+function websiteHref(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (trimmed === "") {
     return null;
   }
+
+  // Block non-http(s) schemes (e.g. "javascript:") to avoid running
+  // arbitrary code when the link button is clicked.
+  if (hasSchemePattern.test(trimmed) && !hasHttpSchemePattern.test(trimmed)) {
+    return null;
+  }
+
+  return hasHttpSchemePattern.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 const revealDurationMs = 15 * 1000;
@@ -277,7 +284,7 @@ export function ItemValue({
         ? "••••••••••••"
         : value;
 
-  const linkHref = link && !sensitive ? safeHttpUrl(displayedValue) : null;
+  const linkHref = link && !sensitive ? websiteHref(displayedValue) : null;
   const valueClassName = multiline
     ? "item-value-text item-value-multiline"
     : "item-value-text";
