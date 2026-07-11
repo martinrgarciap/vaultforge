@@ -185,6 +185,7 @@ export function ItemDetails({
                   sensitive={field.kind === "password"}
                   copyable={allowedCopyFields.has(field.key)}
                   multiline={field.kind === "multiline"}
+                  link={field.kind === "url"}
                 />
 
                 {field.kind === "password" ? (

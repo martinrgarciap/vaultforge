@@ -10,6 +10,19 @@ interface ItemValueProps {
   copyable?: boolean;
   compact?: boolean;
   multiline?: boolean;
+  link?: boolean;
+}
+
+function safeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 const revealDurationMs = 15 * 1000;
@@ -99,6 +112,39 @@ function CheckIcon() {
   );
 }
 
+function ExternalLinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M9 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M14 4h6v6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M10 14 20 4"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function lowerFirst(value: string): string {
   return value.charAt(0).toLowerCase() + value.slice(1);
 }
@@ -110,6 +156,7 @@ export function ItemValue({
   copyable = false,
   compact = false,
   multiline = false,
+  link = false,
 }: ItemValueProps) {
   const { copyValue, resetVersion } = usePrivacy();
   const [revealedResetVersion, setRevealedResetVersion] = useState<
@@ -130,11 +177,15 @@ export function ItemValue({
   const isRevealed = revealedResetVersion === resetVersion;
   const isCopied = copiedResetVersion === resetVersion;
 
-  const stopClickPropagation = (event: MouseEvent<HTMLButtonElement>) => {
+  const stopClickPropagation = (
+    event: MouseEvent<HTMLButtonElement | HTMLAnchorElement>,
+  ) => {
     event.stopPropagation();
   };
 
-  const stopKeyPropagation = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const stopKeyPropagation = (
+    event: KeyboardEvent<HTMLButtonElement | HTMLAnchorElement>,
+  ) => {
     event.stopPropagation();
   };
 
@@ -226,17 +277,16 @@ export function ItemValue({
         ? "••••••••••••"
         : value;
 
+  const linkHref = link && !sensitive ? safeHttpUrl(displayedValue) : null;
+  const valueClassName = multiline
+    ? "item-value-text item-value-multiline"
+    : "item-value-text";
+
   return (
     <div className={compact ? "item-value item-value-compact" : "item-value"}>
-      <span
-        className={
-          multiline ? "item-value-text item-value-multiline" : "item-value-text"
-        }
-      >
-        {displayedValue}
-      </span>
+      <span className={valueClassName}>{displayedValue}</span>
 
-      {value !== "" && (sensitive || copyable) ? (
+      {value !== "" && (sensitive || copyable || linkHref) ? (
         <span className="item-value-controls">
           {sensitive ? (
             <button
@@ -263,6 +313,23 @@ export function ItemValue({
             >
               {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
             </button>
+          ) : null}
+
+          {linkHref ? (
+            <a
+              className={
+                compact ? "icon-button icon-button-compact" : "icon-button"
+              }
+              href={linkHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={stopClickPropagation}
+              onKeyDown={stopKeyPropagation}
+              aria-label={`Open ${accessibleLabel}`}
+              title={`Open ${label}`}
+            >
+              <ExternalLinkIcon />
+            </a>
           ) : null}
 
           {copyable ? (

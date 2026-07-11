@@ -46,6 +46,7 @@ function compactValue(
   options: {
     sensitive?: boolean;
     copyable?: boolean;
+    link?: boolean;
   } = {},
 ) {
   return (
@@ -54,6 +55,7 @@ function compactValue(
       value={payloadValue(item, key)}
       sensitive={options.sensitive}
       copyable={options.copyable}
+      link={options.link}
       compact
     />
   );
@@ -74,6 +76,7 @@ const configurations: Record<ItemType, ItemTableConfiguration> = {
         render: (item) =>
           compactValue(item, "website", "Website", {
             copyable: true,
+            link: true,
           }),
       },
       {

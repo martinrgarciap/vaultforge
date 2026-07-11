@@ -183,4 +183,57 @@ describe("ItemValue", () => {
     expect(screen.getByTitle("Copy Password")).toBeInTheDocument();
     expect(screen.queryByTitle("Password copied")).not.toBeInTheDocument();
   });
+
+  it("shows an open-website button for a valid website value", () => {
+    renderItemValue(
+      {},
+      {
+        label: "Website",
+        value: "https://example.test/path",
+        sensitive: false,
+        copyable: false,
+        link: true,
+      },
+    );
+
+    const anchor = screen.getByRole("link", {
+      name: "Open website",
+    });
+
+    expect(anchor).toHaveAttribute("href", "https://example.test/path");
+    expect(anchor).toHaveAttribute("target", "_blank");
+    expect(anchor).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText("https://example.test/path")).toBeInTheDocument();
+  });
+
+  it("does not link an unsafe or non-URL value", () => {
+    renderItemValue(
+      {},
+      {
+        label: "Website",
+        value: "javascript:alert(1)",
+        sensitive: false,
+        copyable: false,
+        link: true,
+      },
+    );
+
+    expect(screen.getByText("javascript:alert(1)")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("never links a masked sensitive value", () => {
+    renderItemValue(
+      {},
+      {
+        label: "Website",
+        value: "https://example.test",
+        sensitive: true,
+        copyable: false,
+        link: true,
+      },
+    );
+
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
 });
